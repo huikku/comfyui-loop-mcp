@@ -174,8 +174,29 @@ The ratchet/ledger/pivot are adapted from [Karpathy's AutoResearch loop](https:/
 |---|---|---|
 | `upload_image` | `path`, `overwrite=True` | Uploads a local image to ComfyUI's `input/` dir; returns the name to reference in a `LoadImage` node. |
 | `submit_workflow` | `workflow` (API-format dict), `client_id` | On success: `prompt_id` + a "now LOOK" nudge. On failure: `node_errors` + a "fix that node, re-submit" nudge. |
-| `get_result` | `prompt_id`, `timeout_s=120` | Polls `/history`; returns each output's `filename`/`subfolder`/`type` + a directive to look and iterate. |
+| `get_result` | `prompt_id`, `timeout_s=120` | Polls `/history`; returns each output's `filename`/`subfolder`/`type`, reports how many nodes were **served from cache** (with fixed seeds only the nodes downstream of your edit re-run — iterations are cheap on purpose), + a directive to look and iterate. |
 | `get_image` | `filename`, `subfolder=""`, `image_type="output"` | The **actual image**, returned to the model so it can judge the pixels. |
+| `compare_images` | `filename_a`, `filename_b`, `mode="side_by_side"\|"difference"`, `amplify=1.0` | The comparison as an **image**. `difference` = `0.5+0.5*(a−b)`: identical regions read flat mid-gray, so drift you'd never catch by eye pops. An MCP client has no shell for ffmpeg — without this, "diff your outputs" is unexecutable. |
+| `image_diff_stats` | `filename_a`, `filename_b` | Mean/max absolute difference + **% of pixels changed** — the "I changed only what I meant to" gate. Catches the 'small tweak' that quietly rewrote the frame. |
+| `measure_image` | `filename`, `metric="sharpness"\|"tile_seam"\|"brightness"` | An **objective score** for the ratchet, where the brief has an objective test. `tile_seam` compares the wrap-around join to an interior join (~1.0 = genuinely tiles, >2 = a real seam — the claim an eye waves through); `sharpness` = edge energy, rises with real detail, falls when a pass just softened the image. |
+
+**The loop, as durable state** — the ratchet is a *tool*, not a memory exercise.
+A long loop gets compacted; if best-so-far and the ledger live only in the model's
+context, the ratchet silently stops ratcheting, the model retries changes it already
+rejected, and it can hand back a regression as final. So they live on disk.
+
+| Tool | Args | Returns |
+|---|---|---|
+| `loop_start` | `brief`, `gate=""` | Opens a run → `run_id`. `gate` is the objective test **if the brief has one** ("must tile seamlessly", "exactly 3 apples"). |
+| `loop_record` | `run_id`, `change`, `outcome`, `graph=None`, `score=None` | Records a pass and **applies the ratchet**. `"better"` stores that graph as the new best (revertible). `"worse"`/`"same"` hands the **best graph straight back** so reverting is one call — plus the list of changes already tried, so it doesn't repeat a dead end. If both passes carry an objective `score`, **the number overrides the verdict** — a model that wants to be finished will call a regression "better". |
+| `loop_best` | `run_id` | The best-so-far graph. The source of truth after a compaction — your recollection isn't. |
+| `loop_ledger` | `run_id` | The append-only loop log: every pass, what changed, what it did. Recovers the thread after compaction; it's also the log you hand the user at sign-off. |
+| `loop_finish` | `run_id`, `summary=""` | Closes at the convergence checkpoint; returns the final ledger + best graph to present for sign-off. |
+
+**Deliver**
+| Tool | Args | Returns |
+|---|---|---|
+| `save_workflow` | `workflow` (API dict), `name=""`, `save=True` | API → **UI/litegraph** so a human can open and edit it, saved into ComfyUI's workflows list. **Round-trip verified**: the result is converted back to API and diffed against your input, because `widgets_values` is positional and a silent off-by-one shifts parameters — a plausible-but-wrong file is worse than none. |
 
 **Control**
 | Tool | Args | Returns |

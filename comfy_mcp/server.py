@@ -26,6 +26,8 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP, Image
 
+from . import imaging
+from . import loop as loopstate
 from .compress import (
     _NODE_LEGEND,
     compact_node,
@@ -33,6 +35,7 @@ from .compress import (
     flowzip_inflate,
     litegraph_to_api,
 )
+from .litegraph import api_to_litegraph
 
 COMFY_URL = os.environ.get("COMFYUI_URL", "http://localhost:8188").rstrip("/")
 
@@ -63,15 +66,19 @@ mcp = FastMCP(
         "runs — i.e. whenever a trained eye could reject the output: composition/"
         "count, likeness, matte/edge quality, upscale/restore, relight, texture "
         "seams, video temporal stability, 'make it look right'. Then run the loop: "
-        "get_result -> get_image to actually LOOK, name ONE concrete defect, change "
-        "ONE parameter, re-run — repeat until you cannot name a real defect, then "
-        "present the result + a per-pass ledger and ask for sign-off. Run it as a "
-        "RATCHET: hold a best-so-far (output + exact graph); keep a change only if it "
-        "beats the best, else REVERT and try something different (never build on a "
-        "regression); pivot param -> wiring -> model on plateau. A graph with zero "
-        "node_errors is VALID, NOT CORRECT — never trust a green run or a single "
-        "metric; gate on an objective test only where the brief has one, judge by "
-        "eye otherwise. Load the `comfy_loop` prompt for the full autonomous method.\n\n"
+        "loop_start once, then each pass: get_result -> get_image to actually LOOK "
+        "(compare_images against your best-so-far — 'difference' mode makes drift you'd "
+        "never see by eye pop), name ONE concrete defect, change ONE parameter, re-run, "
+        "and loop_record it. Repeat until you cannot name a real defect, then loop_finish "
+        "and present the ledger for sign-off. The RATCHET is a TOOL, not a memory "
+        "exercise: loop_record stores the best graph server-side and hands it back on a "
+        "regression, so REVERT is one call and the best-so-far survives context "
+        "compaction — never build on a regression, and never trust your recollection of "
+        "which pass was best over loop_best. Pivot param -> wiring -> model on plateau. A "
+        "graph with zero node_errors is VALID, NOT CORRECT — never trust a green run or a "
+        "single metric; where the brief has an objective gate (seamless tile, sharpness) "
+        "score it with measure_image and pass the score to loop_record, judge by eye "
+        "otherwise. Load the `comfy_loop` prompt for the full autonomous method.\n\n"
         "SKIP the loop only for mechanical, non-aesthetic tasks (a format "
         "conversion, a one-shot where the user explicitly wants just a runnable "
         "graph, or a pure API query). When unsure, do at least one look-and-"
@@ -813,7 +820,8 @@ async def get_result(prompt_id: str, timeout_s: float = 120.0) -> str:
     if deadline_hit:
         return f"Still running after {timeout_s}s. Call get_result again, or check get_queue."
 
-    outputs = hist[prompt_id].get("outputs", {})
+    record = hist[prompt_id]
+    outputs = record.get("outputs", {})
     files: list[dict[str, str]] = []
     for node_out in outputs.values():
         for key in ("images", "gifs", "videos"):
@@ -827,17 +835,39 @@ async def get_result(prompt_id: str, timeout_s: float = 120.0) -> str:
                 )
     if not files:
         return f"Run finished but produced no image/video outputs. Check the graph has a Save/Preview node. Raw outputs: {json.dumps(outputs)[:500]}"
+
+    # ComfyUI caches nodes whose inputs didn't change, so a one-param edit only
+    # re-executes DOWNSTREAM of that node — iterations are cheap on purpose, and
+    # stay cheap only if you keep seeds fixed. Surface it so the model knows.
+    cached: list = []
+    for msg in record.get("status", {}).get("messages", []):
+        if isinstance(msg, list) and len(msg) > 1 and msg[0] == "execution_cached":
+            cached = (msg[1] or {}).get("nodes", []) or []
+    cache_note = (
+        f"\n\n{len(cached)} node(s) served from cache (unchanged upstream) — only the nodes "
+        "downstream of your edit actually re-ran. Keep seeds FIXED between passes so this "
+        "holds: it makes each iteration cheap, and it isolates your one change as the only "
+        "variable (a re-rolled seed means you learn nothing from the diff)."
+        if cached
+        else ""
+    )
+
     return (
         f"{len(files)} output(s) for {prompt_id}:\n"
         + json.dumps(files, indent=2)
-        + "\n\nNEXT (do not stop here): call get_image on each and LOOK. Then either "
+        + cache_note
+        + "\n\nNEXT (do not stop here): call get_image on each and LOOK. Compare against your "
+        "best-so-far with compare_images(mode='difference') — identical areas read flat gray, "
+        "so drift you'd never catch by eye pops out. Then either "
         "(a) name ONE concrete defect vs the brief — six fingers, drifted background, "
         "hard matte edge, over-strong effect, wrong count — change exactly ONE "
         "parameter and re-submit; or (b) if you genuinely cannot name a defect, "
         "declare the brief met and present the result for sign-off. A green run is "
         "valid, not correct — decide by looking, never by a single metric. "
-        "RATCHET: if this pass is worse than your best-so-far, revert to the best "
-        "graph and try a different change instead of building on the regression."
+        "RATCHET: call loop_record(run_id, change, outcome, graph) every pass. On a "
+        "regression it hands you the best graph back — revert to it and try a different "
+        "change instead of building on the regression. Your best-so-far lives in the run, "
+        "not in your context, so it survives compaction."
     )
 
 
@@ -907,6 +937,286 @@ async def interrupt() -> str:
     async with _client() as c:
         await c.post("/interrupt")
     return "Interrupt sent."
+
+
+# --------------------------------------------------------------------------- #
+# LOOK — comparisons and objective gates
+#
+# The loop tells the model to diff outputs and to gate on an objective test where
+# the brief has one. Through MCP there is no shell for ffmpeg, so without these
+# that instruction is unexecutable and every judgement collapses back to vibes.
+# --------------------------------------------------------------------------- #
+async def _fetch_view(filename: str, subfolder: str = "", image_type: str = "output") -> bytes:
+    async with _client() as c:
+        r = await c.get(
+            "/view",
+            params={"filename": filename, "subfolder": subfolder, "type": image_type},
+        )
+    r.raise_for_status()
+    return r.content
+
+
+@mcp.tool()
+async def compare_images(
+    filename_a: str,
+    filename_b: str,
+    mode: str = "side_by_side",
+    subfolder_a: str = "",
+    subfolder_b: str = "",
+    amplify: float = 1.0,
+) -> Image:
+    """See what changed between two passes (loop step 3: LOOK — the comparison).
+
+    mode="side_by_side": both outputs on one canvas — what moved, at a glance.
+    mode="difference":   0.5 + 0.5*(a-b) — identical regions read FLAT MID-GRAY and
+                         only real changes pop. This is how you answer "did the
+                         background actually stay put?", which the eye is bad at.
+                         Raise `amplify` (e.g. 4.0) to surface subtle drift.
+
+    Use it every pass against your best-so-far: a change that altered more than you
+    intended is a regression even if the new bit looks nice.
+    """
+    a = await _fetch_view(filename_a, subfolder_a)
+    b = await _fetch_view(filename_b, subfolder_b)
+    data = (
+        imaging.side_by_side(a, b)
+        if mode == "side_by_side"
+        else imaging.difference(a, b, amplify=amplify)
+    )
+    return Image(data=data, format="png")
+
+
+@mcp.tool()
+async def image_diff_stats(
+    filename_a: str, filename_b: str, subfolder_a: str = "", subfolder_b: str = ""
+) -> str:
+    """Quantify the change between two passes — the 'I changed only what I meant to' gate.
+
+    Returns mean/max absolute difference and the % of pixels that moved. Pair it
+    with compare_images: the picture tells you WHAT changed, this tells you HOW
+    MUCH — and catches the case where a 'small tweak' quietly rewrote the frame.
+    """
+    a = await _fetch_view(filename_a, subfolder_a)
+    b = await _fetch_view(filename_b, subfolder_b)
+    return json.dumps(imaging.diff_stats(a, b), indent=2)
+
+
+@mcp.tool()
+async def measure_image(filename: str, metric: str = "sharpness", subfolder: str = "") -> str:
+    """Score an output objectively, for the ratchet (metric: sharpness | tile_seam | brightness).
+
+    Use ONLY where the brief has an objective test — then feed the score to
+    loop_record so the ratchet can't be fooled by a model that wants to be done:
+
+      tile_seam   "seamless texture" — compares the wrap-around join to an interior
+                  join. ~1.0 = genuinely tiles; >2 = a real seam. The eye waves this through.
+      sharpness   "upscale/restore, add detail" — edge energy. Rises with real detail,
+                  falls when a pass just softened the image. Compare ACROSS passes.
+      brightness  mean / stddev / p99 — exposure and blown-highlight checks.
+
+    A score is not the judgement. A graph with a great number can still look wrong —
+    gate on the metric, decide with your eyes.
+    """
+    data = await _fetch_view(filename, subfolder)
+    if metric == "tile_seam":
+        return json.dumps(imaging.tile_seam(data), indent=2)
+    if metric == "brightness":
+        return json.dumps(imaging.brightness(data), indent=2)
+    if metric == "sharpness":
+        return json.dumps(
+            {"sharpness": imaging.sharpness(data), "score": imaging.sharpness(data),
+             "note": "higher = more edge detail; compare across passes, not to an absolute"},
+            indent=2,
+        )
+    return f"Unknown metric {metric!r}. Use: sharpness | tile_seam | brightness."
+
+
+# --------------------------------------------------------------------------- #
+# LOOP STATE — the ratchet and the ledger, held outside the model's context
+#
+# A long loop gets compacted. If best-so-far and the ledger live only in context,
+# the ratchet silently stops ratcheting, the model retries changes it already
+# rejected, and it can present a regression as final. So they live on disk.
+# --------------------------------------------------------------------------- #
+@mcp.tool()
+async def loop_start(brief: str, gate: str = "") -> str:
+    """Open a loop run — do this BEFORE the first submit (loop step 0).
+
+    `brief` is what "right" means, in the user's words; you'll be judged against it.
+    `gate` is the objective test IF the brief has one ("must tile seamlessly",
+    "exactly 3 apples", "identity preserved") — leave empty for purely aesthetic work.
+
+    Returns a run_id. Pass it to loop_record every pass. This is what makes the
+    ratchet real: your best graph is stored HERE, not in your context, so it
+    survives compaction and can actually be reverted to.
+    """
+    run = loopstate.start(brief, gate)
+    return (
+        f"run_id: {run['run_id']}\nBrief: {brief}\n"
+        + (f"Objective gate: {gate}\n" if gate else "")
+        + "\nEvery pass: change ONE thing → submit → get_result → get_image → LOOK → "
+        "judge vs the brief → loop_record(run_id, change, outcome, graph). Record the "
+        "graph on every 'better' — a best you can't restore is not a best."
+    )
+
+
+@mcp.tool()
+async def loop_record(
+    run_id: str,
+    change: str,
+    outcome: str,
+    graph: dict | None = None,
+    score: float | None = None,
+    note: str = "",
+) -> str:
+    """Record a pass and apply the ratchet (loop step 5: DECIDE).
+
+    `change`  the ONE thing you changed this pass ("denoise 0.6 -> 0.45").
+    `outcome` your verdict vs the best-so-far: "better" | "worse" | "same".
+    `graph`   the API graph you just ran — REQUIRED when outcome is "better", because
+              that's what gets stored as the new best and handed back on a revert.
+    `score`   an objective score from measure_image, when the brief has a gate. If both
+              this pass and the best have one, the NUMBER decides — not your verdict.
+              (A model that wants to be finished will call a regression "better".)
+
+    On "worse"/"same" you get the best graph back: revert to it and try a DIFFERENT
+    change. Never build on a regression — that's how a loop wanders instead of converging.
+    """
+    try:
+        res = loopstate.record(run_id, change, outcome, graph=graph, score=score, note=note)
+    except KeyError:
+        return f"No run {run_id!r}. Call loop_start first."
+    except ValueError as e:
+        return str(e)
+
+    run, n = res["run"], res["pass_n"]
+    if res["promoted"]:
+        return (
+            f"Pass {n} recorded — NEW BEST (stored, revertible).\n"
+            f"{loopstate.format_ledger(run)}\n\n"
+            "Keep going: can you still name a concrete defect? Then change ONE more "
+            "thing. If you genuinely cannot, call loop_finish and present for sign-off."
+        )
+
+    best = run.get("best")
+    if not best:
+        return (
+            f"Pass {n} recorded ({res['run']['passes'][-1]['outcome']}). No best yet — "
+            "nothing to revert to. Record a 'better' pass WITH its graph to set one.\n"
+            f"{loopstate.format_ledger(run)}"
+        )
+    already = loopstate.tried(run)
+    return (
+        f"Pass {n} recorded as {run['passes'][-1]['outcome']} — REVERT.\n\n"
+        f"Best remains pass {best['pass']}. Its graph follows; go back to it and try a "
+        f"DIFFERENT change (do not build on this regression).\n\n"
+        f"Changes already tried (don't repeat): {already}\n\n"
+        f"BEST GRAPH:\n{json.dumps(best['graph'], indent=2)}"
+    )
+
+
+@mcp.tool()
+async def loop_best(run_id: str) -> str:
+    """Fetch the best-so-far graph — to revert to it, or to deliver it as the final.
+
+    Use this after a compaction, or any time you're unsure the graph in your context
+    is still the best one. It is the source of truth; your memory is not.
+    """
+    b = loopstate.best(run_id)
+    if not b:
+        return f"No best recorded for {run_id!r} yet."
+    return (
+        f"Best = pass {b['pass']}"
+        + (f" (score {b['score']})" if b.get("score") is not None else "")
+        + f" — {b.get('note', '')}\n\n{json.dumps(b['graph'], indent=2)}"
+    )
+
+
+@mcp.tool()
+async def loop_ledger(run_id: str) -> str:
+    """The append-only loop log: every pass, what changed, what it did.
+
+    Read it after a context compaction to recover the thread — what the brief was,
+    what's already been tried (so you don't retry a dead end), and which pass is best.
+    This is also the log you hand the user at sign-off; it's the story of how the
+    result got good.
+    """
+    run = loopstate.get(run_id)
+    if not run:
+        return f"No run {run_id!r}."
+    return loopstate.format_ledger(run) + f"\n\nAlready tried: {loopstate.tried(run)}"
+
+
+@mcp.tool()
+async def loop_finish(run_id: str, summary: str = "") -> str:
+    """Close the loop at the convergence checkpoint — you can't name a defect anymore.
+
+    Marks the run converged and returns the final ledger + the best graph, ready to
+    present. Then STOP and ask the user to approve or request changes; don't keep
+    inventing variations to avoid stopping.
+    """
+    run = loopstate.finish(run_id, summary)
+    if not run:
+        return f"No run {run_id!r}."
+    b = run.get("best")
+    out = ["CONVERGED — present this and ask for sign-off.\n", loopstate.format_ledger(run)]
+    if summary:
+        out.append(f"\nSummary: {summary}")
+    if b:
+        out.append(f"\nFINAL GRAPH (best = pass {b['pass']}):\n{json.dumps(b['graph'], indent=2)}")
+    return "\n".join(out)
+
+
+# --------------------------------------------------------------------------- #
+# DELIVER — the UI-editable file
+# --------------------------------------------------------------------------- #
+@mcp.tool()
+async def save_workflow(workflow: dict, name: str = "", save: bool = True) -> str:
+    """Convert an API graph to UI/litegraph format so a human can open and edit it.
+
+    The loop builds API format because that's what /prompt runs — it is NOT the file
+    you drag onto the ComfyUI canvas. Call this when the user asks for the editable
+    workflow.
+
+    The result is VERIFIED by converting it back to API format and diffing against
+    what you passed in; any mismatch is reported. widgets_values is positional and a
+    silent off-by-one shifts parameters — a plausible-but-wrong file is worse than
+    none, so if the round-trip doesn't match, fix it before shipping it.
+
+    With save=True and a name, it's written to ComfyUI's workflows dir so it shows up
+    in the UI's workflow list.
+    """
+    async with _client() as c:
+        object_info = (await c.get("/object_info")).json()
+
+    wf, warnings = api_to_litegraph(workflow, object_info)
+    head = f"{len(wf['nodes'])} nodes, {len(wf['links'])} links."
+    if warnings:
+        head += "\n\n⚠ ROUND-TRIP MISMATCH — do NOT ship this file as-is:\n - " + "\n - ".join(
+            warnings[:12]
+        )
+    else:
+        head += " Round-trip verified: converts back to the exact API graph you gave me."
+
+    saved = ""
+    if save and name:
+        fname = name if name.endswith(".json") else f"{name}.json"
+        try:
+            async with _client() as c:
+                r = await c.post(
+                    f"/userdata/workflows%2F{fname}",
+                    content=json.dumps(wf).encode(),
+                    headers={"Content-Type": "application/json"},
+                )
+            saved = (
+                f"\n\nSaved to ComfyUI as workflows/{fname} — open it from the UI's workflow list."
+                if r.status_code < 300
+                else f"\n\nCouldn't save to ComfyUI (HTTP {r.status_code}); the JSON is below — save it yourself."
+            )
+        except Exception as e:
+            saved = f"\n\nCouldn't save to ComfyUI ({e}); the JSON is below — save it yourself."
+
+    return f"{head}{saved}\n\n{json.dumps(wf, indent=2)}"
 
 
 # --------------------------------------------------------------------------- #

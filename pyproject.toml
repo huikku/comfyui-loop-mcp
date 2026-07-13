@@ -10,6 +10,7 @@ dependencies = [
   "mcp[cli]>=1.2.0",
   "httpx>=0.27",
   "anyio>=4.0",
+  "pillow>=10.0",  # compare_images / measure_image — an MCP client has no shell for ffmpeg
 ]
 
 [project.scripts]
