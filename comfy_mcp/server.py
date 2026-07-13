@@ -28,6 +28,7 @@ from mcp.server.fastmcp import FastMCP, Image
 
 from . import imaging
 from . import loop as loopstate
+from . import report
 from .compress import (
     _NODE_LEGEND,
     compact_node,
@@ -1068,6 +1069,7 @@ async def loop_record(
     graph: dict | None = None,
     score: float | None = None,
     note: str = "",
+    outputs: list | None = None,
 ) -> str:
     """Record a pass and apply the ratchet (loop step 5: DECIDE).
 
@@ -1078,12 +1080,16 @@ async def loop_record(
     `score`   an objective score from measure_image, when the brief has a gate. If both
               this pass and the best have one, the NUMBER decides — not your verdict.
               (A model that wants to be finished will call a regression "better".)
+    `outputs` this pass's output files, straight from get_result — pass them through so
+              loop_report can show what each pass actually looked like.
 
     On "worse"/"same" you get the best graph back: revert to it and try a DIFFERENT
     change. Never build on a regression — that's how a loop wanders instead of converging.
     """
     try:
-        res = loopstate.record(run_id, change, outcome, graph=graph, score=score, note=note)
+        res = loopstate.record(
+            run_id, change, outcome, graph=graph, score=score, note=note, outputs=outputs
+        )
     except KeyError:
         return f"No run {run_id!r}. Call loop_start first."
     except ValueError as e:
@@ -1165,6 +1171,55 @@ async def loop_finish(run_id: str, summary: str = "") -> str:
     if b:
         out.append(f"\nFINAL GRAPH (best = pass {b['pass']}):\n{json.dumps(b['graph'], indent=2)}")
     return "\n".join(out)
+
+
+@mcp.tool()
+async def loop_report(run_id: str, out_path: str = "") -> str:
+    """Render the whole run as ONE self-contained HTML page — every pass, what changed,
+    what was kept, what was reverted, and the final.
+
+    This is the artifact worth keeping. The final image alone proves nothing; the
+    *evidence of convergence* — the passes you threw away — is what shows the loop
+    actually worked. Hand it over at the sign-off checkpoint alongside the result.
+
+    Images are downscaled and base64-inlined, so the page renders with ComfyUI off,
+    on someone else's machine, or emailed. Writes next to the run state by default;
+    set out_path to put it anywhere.
+    """
+    run = loopstate.get(run_id)
+    if not run:
+        return f"No run {run_id!r}."
+
+    # Pull each pass's output. A pass whose file is gone just renders without a thumb —
+    # a missing image must not take down the report.
+    images: dict[int, bytes] = {}
+    for p in run.get("passes", []):
+        for out in p.get("outputs") or []:
+            if not isinstance(out, dict) or not out.get("filename"):
+                continue
+            try:
+                images[p["n"]] = await _fetch_view(
+                    out["filename"], out.get("subfolder", ""), out.get("type", "output")
+                )
+            except Exception:
+                pass
+            break  # one thumbnail per pass is the story; the rest is noise
+
+    best = run.get("best") or {}
+    final = images.get(best.get("pass")) if best else None
+
+    path = Path(out_path) if out_path else loopstate.STATE_DIR / f"{run['run_id']}.html"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(report.render(run, images, final), encoding="utf-8")
+
+    n = len(run.get("passes", []))
+    kept = sum(1 for p in run.get("passes", []) if p.get("kept"))
+    return (
+        f"Loop report written to {path}\n"
+        f"{n} passes ({kept} kept, {n - kept} reverted), {len(images)} output(s) embedded.\n"
+        "Self-contained — no external assets, renders anywhere. Show it with the result: "
+        "the passes you threw away are what prove the loop converged."
+    )
 
 
 # --------------------------------------------------------------------------- #
