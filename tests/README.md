@@ -43,13 +43,15 @@ covered are exactly the three that mutate the ComfyUI host — see below.
 `template_slots`, error robustness, all three resources, `get_queue`,
 `system_stats`, and a full text-to-image submit→result→get_image.
 
-`integration_loop.py` (21 checks): everything that makes this an MCP for
+`integration_loop.py` (23 checks): everything that makes this an MCP for
 *looping* rather than for driving ComfyUI once — `upload_image`,
 `flowzip_to_api`, `inflate_workflow`, `run_template` (with overrides),
 `measure_image`, `compare_images` (side-by-side + difference),
 `image_diff_stats`, the whole ratchet (`loop_start` → `loop_record` →
-`loop_best` → `loop_ledger` → `loop_report` → `loop_finish`), `interrupt`, and
-`save_workflow`.
+`loop_best` → `loop_ledger` → `loop_report` → `loop_finish`), `interrupt`,
+`save_workflow`, and `restart_comfyui`'s **failure** path (run against a
+throwaway 404 stub, so nothing real is touched — it must report the failure, not
+claim the restart happened).
 
 It runs a **real two-pass loop**, and its load-bearing check is that an
 **objective score overrules a wrong verdict**: pass 2 is recorded as `"better"`
@@ -59,24 +61,35 @@ agent tells it is not a ratchet — and over a long run the agent is precisely t
 component that goes wrong. Loop state is written to a temp dir, never to the
 real `~/.comfy-mcp`.
 
-## Mutating paths — manual, and verified once on a live box
+## Mutating suite — gated behind an env var
 
-These change the ComfyUI host (install code/files, restart the server), so they
-are **not** in the automated suite — run them deliberately. Verified end-to-end
-on linuxdev (RTX 4090, ComfyUI 0.25.0, ComfyUI-Manager V3.41):
+`integration_mutating.py` covers the three tools that change the ComfyUI host:
+`install_model`, `install_node_pack`, and `restart_comfyui`'s success path. It
+downloads a real model, installs a real pack, and restarts ComfyUI twice, so it
+**refuses to run** unless you opt in:
 
-| Path | Result | Notes |
-|---|---|---|
-| `install_model("RealESRGAN x2")` → `list_models` | ✅ PASS | 67 MB; appeared in `UpscaleModelLoader` enum; no restart needed |
-| `restart_comfyui` → `check_comfyui` | ✅ PASS | ~13 s recovery (ComfyUI under pm2 auto-restarts) |
-| `install_node_pack("rgthree-comfy")` → `restart_comfyui` → `list_nodes` | ✅ PASS | 24 `(rgthree)` nodes registered after restart |
+```bash
+COMFY_MCP_ALLOW_MUTATION=1 COMFYUI_URL=http://localhost:8188 \
+    python tests/integration_mutating.py
+```
 
-**Bug found + fixed during this pass:** `install_node_pack` returned HTTP 500
-because Manager's `/manager/queue/install` reads `channel`/`mode` by direct key
-access; those are now sent (`channel="default"`, `mode="cache"`). Without live
-testing this would have shipped broken.
+Without the env var it prints what it *would* do and exits 0. The tools are
+judged by ground truth, not by their own success messages: `install_model` only
+passes if the file appears in `UpscaleModelLoader`'s enum, and
+`install_node_pack` only if its nodes appear in `/object_info` after the restart.
 
-To re-run a mutating check manually (installs a real pack — do it deliberately):
+Between the two automated suites and this gated one, **all 32 tools have a
+passing test.**
+
+Verified end-to-end on linuxdev (RTX 4090, ComfyUI 0.25.0, ComfyUI-Manager
+V3.41): 6/6.
+
+**Bug found + fixed during the original pass:** `install_node_pack` returned HTTP
+500 because Manager's `/manager/queue/install` reads `channel`/`mode` by direct
+key access; those are now sent (`channel="default"`, `mode="cache"`). Without
+live testing this would have shipped broken.
+
+To run the mutating suite manually (installs a real pack — do it deliberately):
 
 ```python
 # python - <<'PY'  (with COMFYUI_URL set)

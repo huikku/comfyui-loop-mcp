@@ -80,6 +80,23 @@ def graph(steps: int, seed: int = 1) -> dict:
     }
 
 
+async def _stub_404() -> int:
+    """A throwaway HTTP server that 404s everything — stands in for a ComfyUI with
+    no ComfyUI-Manager installed, so restart_comfyui's failure path can be tested
+    without going anywhere near the real host. Returns its port."""
+    async def handle(reader, writer):
+        try:
+            await reader.read(4096)
+            writer.write(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n"
+                         b"Connection: close\r\n\r\n")
+            await writer.drain()
+        finally:
+            writer.close()
+
+    server = await asyncio.start_server(handle, "127.0.0.1", 0)
+    return server.sockets[0].getsockname()[1]
+
+
 async def render(s, g: dict) -> dict | None:
     sub = txt(await s.call_tool("submit_workflow", {"workflow": g}))
     if "prompt_id=" not in sub:
@@ -217,6 +234,28 @@ async def main() -> int:
                     "workflow": graph(6), "name": "mcp_looptest", "save": False}))
                 check("save_workflow round-trip verifies", "Round-trip verified" in sw,
                       sw.strip().splitlines()[0][:70])
+
+        # ---------------- restart_comfyui: the FAILURE branch ----------------
+        # Pointed at a server with no ComfyUI-Manager, restart_comfyui must say so.
+        # It used to swallow the error and report "Restart triggered" regardless,
+        # leaving the caller polling for a restart that never happened. This runs
+        # against a throwaway stub, so the real ComfyUI is never touched.
+        port = await _stub_404()
+        stub = StdioServerParameters(
+            command="comfy-mcp",
+            env={**os.environ, "COMFYUI_URL": f"http://127.0.0.1:{port}",
+                 "COMFY_MCP_STATE_DIR": state},
+        )
+        async with stdio_client(stub) as (r2, w2):
+            async with ClientSession(r2, w2) as s2:
+                await s2.initialize()
+                rs = txt(await s2.call_tool("restart_comfyui", {}))
+                check("restart_comfyui reports FAILURE when Manager is absent",
+                      "RESTART FAILED" in rs and "404" in rs,
+                      rs.strip().splitlines()[0][:70])
+                check("...and does not claim the restart happened",
+                      "Restart triggered" not in rs,
+                      "reporting success here is what sends an agent debugging a ghost")
     finally:
         shutil.rmtree(state, ignore_errors=True)
 
