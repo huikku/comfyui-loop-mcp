@@ -181,6 +181,27 @@ def litegraph_to_api(wf: dict, object_info: dict) -> tuple[dict, list[str]]:
     """
     link_src = {lk[0]: [str(lk[1]), lk[2]] for lk in wf.get("links", []) if lk}
     subgraph_ids = {sg.get("id") for sg in wf.get("definitions", {}).get("subgraphs", [])}
+
+    # Reroute is a frontend-only passthrough: it has no backend class, so a link
+    # pointing at one must be followed back to the real producer or the API graph
+    # references a node that doesn't exist.
+    passthrough = {
+        str(n["id"]): (n.get("inputs") or [{}])[0].get("link")
+        for n in wf.get("nodes", [])
+        if n.get("type") == "Reroute"
+    }
+
+    def resolve(src: list) -> list | None:
+        seen = set()
+        while src and src[0] in passthrough:
+            if src[0] in seen:
+                return None  # cyclic reroute chain
+            seen.add(src[0])
+            upstream = passthrough[src[0]]
+            if upstream is None or upstream not in link_src:
+                return None  # dangling reroute
+            src = link_src[upstream]
+        return src
     api: dict[str, Any] = {}
     warnings: list[str] = []
     for n in wf.get("nodes", []):
@@ -194,11 +215,15 @@ def litegraph_to_api(wf: dict, object_info: dict) -> tuple[dict, list[str]]:
             continue
         spec = object_info[ntype].get("input", {})
         ordered = list((spec.get("required") or {}).items()) + list((spec.get("optional") or {}).items())
-        conn = {
-            inp["name"]: link_src[inp["link"]]
-            for inp in (n.get("inputs") or [])
-            if inp.get("link") is not None and inp.get("link") in link_src
-        }
+        conn = {}
+        for inp in (n.get("inputs") or []):
+            if inp.get("link") is None or inp["link"] not in link_src:
+                continue
+            src = resolve(link_src[inp["link"]])
+            if src is None:
+                warnings.append(f"{ntype}.{inp['name']} (dangling reroute — input left unwired)")
+                continue
+            conn[inp["name"]] = src
         widgets = list(n.get("widgets_values") or [])
         inputs: dict[str, Any] = {}
         wi = 0
