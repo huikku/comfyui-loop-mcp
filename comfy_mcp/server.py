@@ -47,11 +47,15 @@ _TPL_REPO = "https://raw.githubusercontent.com/Comfy-Org/workflow_templates"
 _TPL_REF = os.environ.get("COMFYUI_TEMPLATES_REF", "main")
 _TPL_BASE = f"{_TPL_REPO}/{_TPL_REF}"
 
-# The loop/skill docs are single-sourced from the repo so the MCP prompts never
-# drift from the pasteable prompts. Override the dir if the server is installed
-# away from the repo.
-_DOCS_DIR = Path(
-    os.environ.get("COMFYUI_ONBOARDING_DIR", str(Path(__file__).resolve().parents[2]))
+# The loop/skill docs ship INSIDE the package, so an installed server is
+# self-contained — a `pip install` from anywhere still serves the prompts. They're
+# vendored from huikku/comfyui-llm-onboarding-prompt (same author, MIT); point
+# COMFYUI_ONBOARDING_DIR at a checkout of that repo to serve them live instead.
+_PKG_DOCS = Path(__file__).resolve().parent / "docs"
+_DOCS_DIR = (
+    Path(os.environ["COMFYUI_ONBOARDING_DIR"])
+    if os.environ.get("COMFYUI_ONBOARDING_DIR")
+    else _PKG_DOCS
 )
 
 mcp = FastMCP(
@@ -96,6 +100,15 @@ def _client() -> httpx.AsyncClient:
 
 
 def _read_doc(name: str) -> str:
+    # Prefer the override dir, but always fall back to the packaged copy — a bad
+    # COMFYUI_ONBOARDING_DIR must not leave the prompts empty.
+    for d in (_DOCS_DIR, _PKG_DOCS):
+        path = d / name
+        if path.is_file():
+            try:
+                return path.read_text(encoding="utf-8")
+            except OSError:
+                break
     path = _DOCS_DIR / name
     try:
         return path.read_text(encoding="utf-8")

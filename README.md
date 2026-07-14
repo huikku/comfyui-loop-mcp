@@ -1,17 +1,33 @@
-# comfy-mcp — a loop-aware MCP server for ComfyUI
+# comfyui-loop-mcp
 
-An [MCP](https://modelcontextprotocol.io) server that wraps **your own** ComfyUI
-install and bakes in the build → run → **look** → critique → fix loop from this
-repo. It doesn't just call the API — every tool description, tool response, and
-the server's own instructions push the model through the loop: discover real
-nodes/models before building, validate by executing, and *actually look at the
-pixels* before deciding a graph is done. A graph that runs with zero
-`node_errors` is **valid, not correct**.
+**A loop-aware [MCP](https://modelcontextprotocol.io) server for your own ComfyUI.**
+It doesn't just call the API — it runs the loop: **build → run → _look_ → critique → fix**,
+until the output actually meets the brief.
 
-It is the repo's [`SKILL.md`](../SKILL.md) and
-[`COMFYUI_WORKFLOW_LOOP_PROMPT.md`](../COMFYUI_WORKFLOW_LOOP_PROMPT.md) **made
-executable** — the discovery tools are a direct port of the skill's steps, and
-the `comfy_loop` / `comfy_skill` prompts serve those files verbatim so they never
+A graph that runs with zero `node_errors` is **valid, not correct**. Mangled hands, a
+drifted background, a hard matte edge, a visible tile seam — none of that shows up in an
+error log. It only shows up in the pixels. So every tool description, every tool
+response, and the server's own instructions push the model to *look* before it declares
+a graph done.
+
+**The part nobody else has: the ratchet is a tool, not a suggestion.**
+Most agent tooling drives ComfyUI. This one *manages the loop* — a long loop gets its
+context compacted, and the moment that happens a remembered "best-so-far" is gone: the
+ratchet silently stops ratcheting, the model retries changes it already rejected, and it
+can hand you a regression as the final answer. So the **best graph and the ledger live
+on disk**, not in the model's memory. Reverting is a tool call, not an act of recall.
+
+```
+loop_start ─▶ submit ─▶ get_result ─▶ get_image ─▶ compare_images ─▶ loop_record ─┐
+     ▲                                   (LOOK)      (what moved?)    (ratchet)   │
+     └───────────────────  revert to best, try something else  ◀─────────────────┘
+                                                          ↓ can't name a defect?
+                                           loop_finish + loop_report → sign-off
+```
+
+Companion to [**comfyui-llm-onboarding-prompt**](https://github.com/huikku/comfyui-llm-onboarding-prompt)
+— the pasteable prompts + Claude Code skill this server makes *executable*. Those docs
+ship inside the package, so `comfy_loop` / `comfy_skill` serve them verbatim and never
 drift.
 
 - [How it compares to ComfyUI's official Cloud MCP](#how-it-compares-to-comfyui-cloud-mcp) — the honest version
@@ -240,7 +256,7 @@ not apple detail. The winner (pass 4) was chosen by *looking*. A green number is
 ## Install
 
 ```bash
-cd mcp
+git clone https://github.com/huikku/comfyui-loop-mcp && cd comfyui-loop-mcp
 pip install -e .            # or: uv pip install -e .
 ```
 
