@@ -253,6 +253,34 @@ pass 2 is not the best image** — its score was inflated by background texture,
 not apple detail. The winner (pass 4) was chosen by *looking*. A green number is
 *valid, not correct*. ([example_apple.png](example_apple.png) is that pass-4 result.)
 
+### …and the other half: when the model is the one that's wrong
+
+The apple shows why you can't trust the **metric** blindly. This run shows why you
+can't trust the **model** blindly — which is the entire reason the ratchet is a tool
+and not a note in a prompt.
+
+Brief: *"a seamlessly tileable cobblestone texture — no visible seam at the wrap,"*
+with an objective gate (`measure_image` → `tile_seam`). Same seed throughout, so each
+pass changes exactly one thing. Every texture below is **tiled 2×2** — a seam has
+nowhere to hide.
+
+![Three passes tiled 2x2: baseline seams, circular tiling fixes it, x_only brings the seam back and gets reverted](web/loop_proof.png)
+
+| Pass | One change | `tile_seam` | Ratchet |
+|---|---|---|---|
+| 1 | baseline SDXL | h 1.77 · v 1.23 → borderline | kept (first) |
+| 2 | `SeamlessTile` + `MakeCircularVAE` | **h 0.78 · v 1.12 → seamless** | **NEW BEST** |
+| 3 | `tiling` → `x_only` | h 1.03 · v **1.56** → seam returns | **REVERTED** |
+
+On pass 3 the model told `loop_record` the result was **`"better"`**. It wasn't:
+`x_only` tiles horizontally and leaves the *vertical* wrap broken — visible in the
+right-hand image as stones chopped flat against the horizontal join. **The objective
+score overruled the claim, restored pass 2, and handed the good graph back.**
+
+That is the failure this server exists to prevent: *an agent that wants to be finished
+will call a regression an improvement.* If best-so-far had lived in the model's context
+instead of on disk, that regression would have been the final answer.
+
 ---
 
 ## Install
