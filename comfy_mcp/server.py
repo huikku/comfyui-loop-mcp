@@ -770,11 +770,23 @@ async def restart_comfyui() -> str:
     """Restart ComfyUI (via ComfyUI-Manager) so newly installed nodes register in
     /object_info. The server is briefly unavailable; poll check_comfyui after.
     """
+    # A dropped connection means the reboot happened. An actual HTTP *response*
+    # means it did NOT — Manager is missing, or the route moved. Reporting success
+    # either way would leave the caller waiting on a restart that never came, then
+    # debugging a node that never registered.
     try:
         async with _client() as c:
-            await c.post("/manager/reboot")
+            r = await c.post("/manager/reboot")
     except Exception:  # noqa: BLE001
-        pass  # the reboot drops the connection — expected
+        return ("Restart triggered. ComfyUI is coming back up — wait a few seconds, then call "
+                "check_comfyui to confirm it's live and the new nodes are registered.")
+
+    if r.status_code >= 400:
+        return (f"RESTART FAILED — ComfyUI-Manager returned HTTP {r.status_code} and the server "
+                f"is still running the old process. Nothing was restarted, so newly installed "
+                f"nodes will NOT be in /object_info yet.\n\n"
+                f"Most likely ComfyUI-Manager isn't installed. Install it, or restart ComfyUI "
+                f"by hand and re-check with check_comfyui.")
     return ("Restart triggered. ComfyUI is coming back up — wait a few seconds, then call "
             "check_comfyui to confirm it's live and the new nodes are registered.")
 
