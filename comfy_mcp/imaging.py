@@ -1,3 +1,5 @@
+# Copyright (c) 2026 John Huikku · Alienrobot LLC · alienrobot.com
+# SPDX-License-Identifier: MIT
 """Looking tools — the comparisons that turn "looks fine" into a named defect.
 
 The loop prompt tells the model to view outputs side-by-side and to difference

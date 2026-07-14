@@ -1,3 +1,5 @@
+# Copyright (c) 2026 John Huikku · Alienrobot LLC · alienrobot.com
+# SPDX-License-Identifier: MIT
 """Compression + conversion metrics for comfy-mcp (read-only).
 
 Measures, across the live node set and a broad template sample:

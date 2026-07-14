@@ -1,3 +1,5 @@
+# Copyright (c) 2026 John Huikku · Alienrobot LLC · alienrobot.com
+# SPDX-License-Identifier: MIT
 """Render a loop run as ONE self-contained HTML page.
 
 The loop's most valuable artifact isn't the final image — it's the evidence of how

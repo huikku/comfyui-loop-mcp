@@ -5,7 +5,7 @@ description = "Loop-aware MCP server for ComfyUI — discover from the live API,
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "John Huikku" }]
+authors = [{ name = "John Huikku, Alienrobot LLC" }]
 keywords = ["comfyui", "mcp", "agent", "diffusion", "vfx", "workflow"]
 classifiers = [
   "License :: OSI Approved :: MIT License",

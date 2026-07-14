@@ -1,3 +1,5 @@
+# Copyright (c) 2026 John Huikku · Alienrobot LLC · alienrobot.com
+# SPDX-License-Identifier: MIT
 """Token-efficient representations for ComfyUI nodes and workflows.
 
 Clean-room implementations of two compact text formats, written to the

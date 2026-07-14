@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 John Huikku · Alienrobot LLC · alienrobot.com
+# SPDX-License-Identifier: MIT
 """Build the compressed template-catalog index bundled with comfy-mcp.
 
 Fetches Comfy-Org/workflow_templates' templates/index.json, flattens it to a

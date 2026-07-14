@@ -1,3 +1,5 @@
+# Copyright (c) 2026 John Huikku · Alienrobot LLC · alienrobot.com
+# SPDX-License-Identifier: MIT
 """Safe (non-mutating) integration smoke test for comfy-mcp.
 
 Exercises every read-only + generation path against a live ComfyUI via the MCP

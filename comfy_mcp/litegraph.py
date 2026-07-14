@@ -1,3 +1,5 @@
+# Copyright (c) 2026 John Huikku · Alienrobot LLC · alienrobot.com
+# SPDX-License-Identifier: MIT
 """API/prompt format -> UI/litegraph format, the inverse of compress.litegraph_to_api.
 
 The loop builds and validates in API format because that's what /prompt runs. But

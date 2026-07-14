@@ -1,3 +1,5 @@
+# Copyright (c) 2026 John Huikku · Alienrobot LLC · alienrobot.com
+# SPDX-License-Identifier: MIT
 """Durable loop state — the ratchet and the ledger, held OUTSIDE the model's context.
 
 The loop's whole premise is "keep iterating until it's right," which means long

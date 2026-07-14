@@ -1,3 +1,5 @@
+# Copyright (c) 2026 John Huikku · Alienrobot LLC · alienrobot.com
+# SPDX-License-Identifier: MIT
 """
 comfy-mcp — a loop-aware MCP server for ComfyUI.
 
@@ -12,7 +14,8 @@ graph is done. A graph with zero node_errors is valid, not correct.
 
 Config via env:
   COMFYUI_URL             base URL of the ComfyUI server (default http://localhost:8188)
-  COMFYUI_ONBOARDING_DIR  dir holding the loop/skill markdown (default: repo root above this pkg)
+  COMFYUI_ONBOARDING_DIR  dir holding the loop/skill markdown (default: the copies bundled
+                          in this package, so an installed server is self-contained)
 """
 
 from __future__ import annotations
