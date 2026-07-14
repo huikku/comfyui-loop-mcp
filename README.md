@@ -1,5 +1,7 @@
 # comfyui-loop-mcp
 
+![It doesn't just drive ComfyUI — it runs the loop: submit → get_result → get_image (LOOK) → compare_images → loop_record, with the ratchet (best-so-far + ledger) held on disk](web/hero.png)
+
 **A loop-aware [MCP](https://modelcontextprotocol.io) server for your own ComfyUI.**
 It doesn't just call the API — it runs the loop: **build → run → _look_ → critique → fix**,
 until the output actually meets the brief.

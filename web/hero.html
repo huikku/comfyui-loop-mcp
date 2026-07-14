@@ -1,0 +1,93 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&family=Geist+Mono:wght@400..700&family=Instrument+Sans:wght@400..700&display=swap');
+  :root{--cy:#00c8ff;--ink:#070a0f;--fg:#eef2f6;--mut:#7d8792;
+        --font-display:"Bricolage Grotesque",sans-serif;--font-body:"Instrument Sans",system-ui,sans-serif;--font-mono:"Geist Mono",ui-monospace,monospace}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1200px;height:630px}
+  body{font-family:var(--font-body);background:var(--ink);color:var(--fg);overflow:hidden}
+  .card{position:relative;width:1200px;height:630px;overflow:hidden}
+  /* glow behind the ring — mirrored from the prompts hero, so they read as siblings */
+  .card::before{content:"";position:absolute;right:-40px;top:0;width:640px;height:630px;
+    background:radial-gradient(300px 300px at 50% 50%,rgba(0,200,255,.13),transparent 68%)}
+  .card::after{content:"";position:absolute;left:0;right:0;bottom:74px;height:1px;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.06) 45%,rgba(0,200,255,.22) 82%,transparent)}
+
+  /* ---------- copy: left ---------- */
+  .copy{position:absolute;left:56px;top:92px;width:600px}
+  .eyebrow{font-family:var(--font-mono);font-size:13px;font-weight:700;letter-spacing:4px;color:var(--mut);text-transform:uppercase}
+  .eyebrow b{color:var(--cy);font-weight:700}
+  h1{font-family:var(--font-display);margin-top:16px;font-size:47px;line-height:1.04;font-weight:800;letter-spacing:-1.5px}
+  h1 .cy{color:var(--cy)}
+  .sub{margin-top:18px;font-size:18px;line-height:1.55;color:#9aa4ae}
+  .sub b{color:#cfd6dd;font-weight:600}
+  .stats{position:absolute;left:56px;bottom:26px;display:flex;gap:10px}
+  .stat{font-family:var(--font-mono);font-size:13px;font-weight:700;color:#8b959f;
+    border:1px solid rgba(255,255,255,.10);border-radius:7px;padding:6px 12px}
+  .stat b{color:var(--cy);font-weight:700}
+
+  /* ---------- the loop, as tool calls ---------- */
+  .loop{position:absolute;left:700px;top:75px;width:460px;height:460px}
+  .loop svg{position:absolute;inset:0}
+  .t{position:absolute;transform:translate(-50%,-50%);font-family:var(--font-mono);font-size:14px;font-weight:700;
+    color:var(--cy);background:var(--ink);padding:7px 12px;border-radius:8px;border:1px solid rgba(0,200,255,.5);white-space:nowrap}
+  .t.look{color:#fff;background:linear-gradient(180deg,#00c8ff,#0092c4);border-color:#00c8ff;
+    box-shadow:0 8px 26px rgba(0,200,255,.35)}
+  .ctr{position:absolute;left:230px;top:230px;transform:translate(-50%,-50%);text-align:center;
+    background:rgba(0,200,255,.06);border:1px solid rgba(0,200,255,.3);border-radius:12px;padding:14px 16px}
+  .ctr .k{font-family:var(--font-mono);font-size:10px;letter-spacing:2px;color:var(--mut);text-transform:uppercase}
+  .ctr .v{font-family:var(--font-display);font-size:19px;font-weight:800;color:var(--fg);margin:3px 0 2px;line-height:1.15}
+  .ctr .d{font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--cy)}
+
+  .brand{position:absolute;right:56px;bottom:22px;text-align:right}
+  .brand .nm{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+  .brand .name{font-size:20px;font-weight:800;color:#e9eef3}
+  .brand .tag{margin-top:4px;font-family:var(--font-mono);font-size:11px;letter-spacing:3px;color:#5f6873}
+  .invader{width:22px;height:auto;color:var(--cy)}
+</style></head>
+<body><div class="card">
+
+  <div class="copy">
+    <div class="eyebrow"><b>mcp server</b> · comfyui-loop-mcp</div>
+    <h1>It doesn't just drive<br>ComfyUI. It <span class="cy">runs<br>the loop</span>.</h1>
+    <p class="sub">Discover real nodes off the live API, run, <b>look at the actual pixels</b>, critique, fix. And the ratchet is a <b>tool, not a memory</b> — the best-so-far graph and the ledger live on disk, so they survive context compaction and a regression can actually be reverted.</p>
+  </div>
+
+  <div class="loop">
+    <svg width="460" height="460" viewBox="0 0 460 460">
+      <circle cx="230" cy="230" r="155" fill="none" stroke="#00c8ff" stroke-opacity="0.32" stroke-width="2.5"/>
+      <g fill="#00c8ff">
+        <polygon points="240,75 224,66 224,84" transform="rotate(36 230 230)"/>
+        <polygon points="240,75 224,66 224,84" transform="rotate(108 230 230)"/>
+        <polygon points="240,75 224,66 224,84" transform="rotate(180 230 230)"/>
+        <polygon points="240,75 224,66 224,84" transform="rotate(252 230 230)"/>
+        <polygon points="240,75 224,66 224,84" transform="rotate(324 230 230)"/>
+      </g>
+    </svg>
+    <div class="t" style="left:230px;top:75px">submit_workflow</div>
+    <div class="t" style="left:377px;top:182px">get_result</div>
+    <div class="t look" style="left:321px;top:355px">get_image · LOOK</div>
+    <div class="t" style="left:139px;top:355px">compare_images</div>
+    <div class="t" style="left:83px;top:182px">loop_record</div>
+    <div class="ctr">
+      <div class="k">the ratchet</div>
+      <div class="v">best-so-far<br>+ ledger</div>
+      <div class="d">◆ ON DISK</div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b>32</b> tools</div>
+    <div class="stat"><b>549</b> templates</div>
+    <div class="stat">local &amp; private</div>
+    <div class="stat">MIT</div>
+  </div>
+
+  <div class="brand">
+    <div class="nm"><svg class="invader" viewBox="0 0 11 8" shape-rendering="crispEdges" fill="currentColor"><rect x="2" y="0" width="1" height="1"/><rect x="8" y="0" width="1" height="1"/><rect x="3" y="1" width="1" height="1"/><rect x="7" y="1" width="1" height="1"/><rect x="2" y="2" width="1" height="1"/><rect x="3" y="2" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="5" y="2" width="1" height="1"/><rect x="6" y="2" width="1" height="1"/><rect x="7" y="2" width="1" height="1"/><rect x="8" y="2" width="1" height="1"/><rect x="1" y="3" width="1" height="1"/><rect x="2" y="3" width="1" height="1"/><rect x="4" y="3" width="1" height="1"/><rect x="5" y="3" width="1" height="1"/><rect x="6" y="3" width="1" height="1"/><rect x="8" y="3" width="1" height="1"/><rect x="9" y="3" width="1" height="1"/><rect x="0" y="4" width="1" height="1"/><rect x="1" y="4" width="1" height="1"/><rect x="2" y="4" width="1" height="1"/><rect x="3" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="5" y="4" width="1" height="1"/><rect x="6" y="4" width="1" height="1"/><rect x="7" y="4" width="1" height="1"/><rect x="8" y="4" width="1" height="1"/><rect x="9" y="4" width="1" height="1"/><rect x="10" y="4" width="1" height="1"/><rect x="0" y="5" width="1" height="1"/><rect x="2" y="5" width="1" height="1"/><rect x="3" y="5" width="1" height="1"/><rect x="4" y="5" width="1" height="1"/><rect x="5" y="5" width="1" height="1"/><rect x="6" y="5" width="1" height="1"/><rect x="7" y="5" width="1" height="1"/><rect x="8" y="5" width="1" height="1"/><rect x="10" y="5" width="1" height="1"/><rect x="0" y="6" width="1" height="1"/><rect x="2" y="6" width="1" height="1"/><rect x="8" y="6" width="1" height="1"/><rect x="10" y="6" width="1" height="1"/><rect x="3" y="7" width="1" height="1"/><rect x="4" y="7" width="1" height="1"/><rect x="6" y="7" width="1" height="1"/><rect x="7" y="7" width="1" height="1"/></svg><span class="name">Alienrobot</span></div>
+    <div class="tag">alienrobot.com</div>
+  </div>
+
+</div></body></html>
