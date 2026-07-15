@@ -158,7 +158,7 @@ The ratchet/ledger/pivot are adapted from [Karpathy's AutoResearch loop](https:/
 > MCP can't *force* behavior — it exposes capabilities and guidance. This makes
 > looping the strong, well-scoped default the agent is repeatedly told to prefer.
 > For a hard guarantee in Claude Code, also install the auto-loading
-> [`SKILL.md`](../SKILL.md) — skill = always-on discipline, MCP = the tools it drives.
+> [`comfyui-workflows` skill](https://github.com/huikku/comfyui-llm-onboarding-prompt/blob/main/skills/comfyui-workflows/SKILL.md) — skill = always-on discipline, MCP = the tools it drives.
 
 ---
 
