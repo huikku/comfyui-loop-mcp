@@ -64,6 +64,13 @@ on rather than wording — a failed run is reported as a failure, cancelling a Q
 job does not interrupt the RUNNING one, and a sweep writes its value → prompt_id
 table into durable state (in a temp dir, never the real ledger).
 
+The stub also walks the states a fresh box actually passes through, because each
+one looks like success to anything that only asks whether the API answers: a
+ComfyUI with **no weights on disk** (fully functional, can render nothing), one
+whose **torch is on the CPU** (every render works, ~50x slower, and the graph
+never looks at fault), and one with **no ComfyUI-Manager** (half the EXTEND tools
+are its routes, and `restart_comfyui` is one of them — so it cannot be the fix).
+
 `test_validate.py` pins the pre-flight's one job: separating "install something"
 from "fix the graph". `/prompt` reports both as the same red box, one per submit.
 A checker that finds problems but mislabels them is worse than none — it sends the

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.huikku/comfyui-loop-mcp",
+  "description": "Loop-aware MCP server for your own ComfyUI: discover, run, LOOK at the output, and ratchet toward a result that meets the brief.",
+  "version": "0.2.0",
+  "repository": {
+    "url": "https://github.com/huikku/comfyui-loop-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "comfyui-loop-mcp",
+      "version": "0.2.0",
+      "transport": { "type": "stdio" }
+    }
+  ]
+}

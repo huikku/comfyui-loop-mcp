@@ -201,7 +201,7 @@ The ratchet/ledger/pivot are adapted from [Karpathy's AutoResearch loop](https:/
 **Discover**
 | Tool | Args | Returns |
 |---|---|---|
-| `check_comfyui` | — | Loop step 0, and a real preflight. When nothing answers it returns **what to do about it**, specific to this machine — start the install it found, create one, or open the tunnel for a remote URL (see [Troubleshooting](#troubleshooting)). Otherwise: node count, ComfyUI/torch versions, per-device VRAM **free vs total**, whether ComfyUI-Manager is present (no Manager = no installs, no restart), and whether the queue is already busy — or a clear "not reachable". |
+| `check_comfyui` | — | Loop step 0, and a real preflight. When nothing answers it returns **what to do about it**, specific to this machine — start the install it found, create one, or open the tunnel for a remote URL (see [Troubleshooting](#troubleshooting)). When it *does* answer, it still names what stands between here and a working render: **torch running on the CPU** (every render works, ~50x slower, nothing reports an error), **no weights on disk** (a fully functional ComfyUI that can render nothing), **no ComfyUI-Manager** (with the two commands to fix it, since `restart_comfyui` is itself a Manager route). Otherwise: node count, ComfyUI/torch versions, per-device VRAM **free vs total**, whether ComfyUI-Manager is present (no Manager = no installs, no restart), and whether the queue is already busy — or a clear "not reachable". |
 | `list_nodes` | `keyword=""` | Nodes whose **class name or display name** matches (a strict superset of the skill's class-only search). Omit keyword for the count. |
 | `get_node` | `class_name`, `verbose=False` | One node's interface as **compact** `@Name +req:T ?opt:T -out:T` (~90% fewer tokens); `verbose=True` for full JSON (defaults, min/max). |
 | `list_models` | `class_name`, `input_name=""` | The real model files a loader offers **on disk** (ground truth), read from its enum — handles both the legacy list and `COMBO` encodings. Never hallucinate a filename. |
@@ -341,9 +341,49 @@ instead of on disk, that regression would have been the final answer.
 
 ## Install
 
+**The short version: ask your agent to do it.** Paste this into Claude Code (or any
+MCP client with a shell) and stop there:
+
+> Set up the ComfyUI loop MCP from https://github.com/huikku/comfyui-loop-mcp —
+> register it with my client, and install and launch ComfyUI too if it isn't running.
+
+It has everything it needs to finish that without you: registering the server is one
+`claude mcp add`, and once connected, the **`comfy_install`** prompt hands back the
+bootstrap for *your* machine — an existing ComfyUI to start, the interpreter to build
+the venv from, the torch build your card actually wants, ComfyUI-Manager, and where
+to put models. `check_comfyui` then names anything still missing (no weights, torch
+on the CPU, no Manager) as things for the agent to fix, not report.
+
+**If you'd rather paste config than prose**, this runs the server straight from GitHub
+— nothing to clone, nothing to `pip install`:
+
+```json
+{
+  "mcpServers": {
+    "comfyui": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/huikku/comfyui-loop-mcp", "comfyui-loop-mcp"],
+      "env": { "COMFYUI_URL": "http://localhost:8188" }
+    }
+  }
+}
+```
+
+Claude Code, one line:
+
+```bash
+claude mcp add comfyui -- uvx --from git+https://github.com/huikku/comfyui-loop-mcp comfyui-loop-mcp
+```
+
+Clone the repo instead and [`.mcp.json`](.mcp.json) is already there — Claude Code
+offers the server on first open, no command at all. Reconnect the client after adding
+it; MCP servers are read at connect time.
+
+**Developing on it:**
+
 ```bash
 git clone https://github.com/huikku/comfyui-loop-mcp && cd comfyui-loop-mcp
-pip install -e .            # or: uv pip install -e .
+pip install -e .            # or: uv tool install --editable .
 ```
 
 Requires Python ≥ 3.10 and a reachable ComfyUI. Installs `mcp[cli]`, `httpx`,
@@ -358,24 +398,17 @@ to `MCPServer` and moved the `Image` helper, which the server imports either way
 > `~/.comfy-mcp/runs` keeps being used until you point `COMFY_LOOP_STATE_DIR`
 > somewhere else.
 
-## Connect (Claude Code)
+## Always-on discipline (Claude Code)
+
+The method also installs as a skill, so it loads on the trigger words instead of
+waiting to be asked for — ask the agent to do this too, or:
 
 ```bash
-claude mcp add comfyui -- comfyui-loop-mcp
+mkdir -p ~/.claude/skills/comfyui-workflows
+cp comfy_loop/docs/SKILL.md ~/.claude/skills/comfyui-workflows/
 ```
 
-Or wire it manually in any MCP client config:
-
-```json
-{
-  "mcpServers": {
-    "comfyui": {
-      "command": "comfyui-loop-mcp",
-      "env": { "COMFYUI_URL": "http://localhost:8188" }
-    }
-  }
-}
-```
+Same file the `comfy_skill` prompt serves, so the skill and the server can't drift.
 
 ## Config
 

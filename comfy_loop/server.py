@@ -168,6 +168,12 @@ def _find_local_comfyui() -> Path | None:
     home = Path.home()
     seen += [home / "ComfyUI", home / "comfy" / "ComfyUI", home / "code" / "ComfyUI",
              home / "github" / "ComfyUI", Path("/opt/ComfyUI"), Path.cwd() / "ComfyUI"]
+    # The Windows portable build is how most Windows users have ComfyUI, and it
+    # nests one level deeper with its own embedded interpreter. Missing it means
+    # telling someone to clone a second copy next to the one they already run.
+    for base in (home, Path("C:/"), Path("D:/"), Path.cwd()):
+        seen += [base / "ComfyUI_windows_portable" / "ComfyUI",
+                 base / "Documents" / "ComfyUI", base / "Desktop" / "ComfyUI"]
     for path in seen:
         try:
             if (path / "main.py").is_file() and (path / "comfy").is_dir():
@@ -178,10 +184,69 @@ def _find_local_comfyui() -> Path | None:
 
 
 def _venv_python(root: Path) -> str:
-    for candidate in (root / ".venv" / "bin" / "python", root / "venv" / "bin" / "python"):
-        if candidate.is_file():
-            return str(candidate)
+    candidates = [
+        root / ".venv" / "bin" / "python", root / "venv" / "bin" / "python",
+        root / ".venv" / "Scripts" / "python.exe", root / "venv" / "Scripts" / "python.exe",
+        root.parent / "python_embeded" / "python.exe",  # Windows portable build
+    ]
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return str(candidate)
+        except OSError:
+            continue
     return sys.executable
+
+
+def _weights_on_disk(object_info: dict) -> dict[str, int]:
+    """How many model files this install can actually offer, by kind.
+
+    A fresh ComfyUI is fully functional and can run NOTHING: the nodes are all
+    there, every loader's list is empty. Counting the enums is the difference
+    between "ready" and "ready except for the part that makes an image".
+    """
+    def count(cls: str, field: str) -> int:
+        spec = ((object_info.get(cls) or {}).get("input") or {}).get("required") or {}
+        return len(_extract_enum(spec.get(field)) or [])
+
+    out = {
+        "checkpoints": count("CheckpointLoaderSimple", "ckpt_name"),
+        "diffusion": count("UNETLoader", "unet_name"),
+        "loras": count("LoraLoader", "lora_name"),
+        "vae": count("VAELoader", "vae_name"),
+    }
+    out["total"] = out["checkpoints"] + out["diffusion"]
+    return out
+
+
+def _manager_fix() -> str:
+    """How to get ComfyUI-Manager, addressed to the agent that can do it.
+
+    Half the EXTEND tools are Manager routes. "Install ComfyUI-Manager" is not an
+    answer when the caller has a shell and this process knows where the install
+    is — so hand over the two commands and the restart, with the real path in
+    them where we know it.
+    """
+    found = _find_local_comfyui() if _is_local_target() else None
+    if not found:
+        return (
+            "ComfyUI-Manager is missing on the ComfyUI host. It's two commands, in the "
+            "ComfyUI directory:\n"
+            "  git clone https://github.com/Comfy-Org/ComfyUI-Manager custom_nodes/ComfyUI-Manager\n"
+            "  <that install's python> -m pip install -r custom_nodes/ComfyUI-Manager/requirements.txt\n"
+            "then restart ComfyUI by hand — restart_comfyui is itself a Manager route, so it "
+            "cannot help until Manager exists. If the host is a machine you have no shell on, "
+            "this is the one thing you have to ask the user for."
+        )
+    return (
+        f"ComfyUI-Manager is missing. You have a shell and the install is at {found} — "
+        "fix it yourself:\n"
+        f"  cd {found}\n"
+        "  git clone https://github.com/Comfy-Org/ComfyUI-Manager custom_nodes/ComfyUI-Manager\n"
+        f"  {_venv_python(found)} -m pip install -r custom_nodes/ComfyUI-Manager/requirements.txt\n"
+        "then restart ComfyUI (kill it and relaunch — restart_comfyui is itself a Manager "
+        "route, so it can't help until Manager exists) and call check_comfyui."
+    )
 
 
 def _install_advice(detail: str = "") -> str:
@@ -311,13 +376,15 @@ def _extract_enum(spec: Any) -> list[str] | None:
 async def check_comfyui() -> str:
     """Confirm ComfyUI is up, and report what this install can actually do (loop step 0).
 
-    Node count, ComfyUI/torch versions, per-device VRAM **free vs total**, whether
-    ComfyUI-Manager is present (no Manager = no install_node_pack / install_model /
-    restart_comfyui), and whether the queue is already busy — that last one decides
-    whether your next run starts now or waits behind someone else's.
+    Node count, ComfyUI/torch versions, per-device VRAM **free vs total**, how many
+    weights are actually on disk, whether ComfyUI-Manager is present, and whether the
+    queue is already busy.
 
-    If this fails, ComfyUI isn't running or is on another port. Do not start
-    guessing node names.
+    It also names what stands between here and a working render, as things for YOU to
+    fix: torch running on the CPU (every render works, 50x slower, and the graph never
+    looks at fault), no Manager (half the install tools are its routes), no weights at
+    all (no graph can run). If nothing answers at all, you get the install/start
+    commands for this machine instead — see the comfy_install prompt.
     """
     try:
         async with _client() as c:
@@ -335,23 +402,54 @@ async def check_comfyui() -> str:
     except Exception as e:  # noqa: BLE001
         return _install_advice(str(e))
     sysinfo = stats.get("system", {}) or {}
+    devs = stats.get("devices", []) or []
     devices = ", ".join(
         f"{d.get('name')} {round(d.get('vram_free', 0) / 1e9, 1)}/"
         f"{round(d.get('vram_total', 0) / 1e9, 1)}GB free"
-        for d in stats.get("devices", [])
+        for d in devs
     )
     running, pending = len(q.get("queue_running", [])), len(q.get("queue_pending", []))
     busy = (f"Queue: {running} running, {pending} pending — your submit will wait behind them."
             if running or pending else "Queue: idle.")
-    mgr = (f"ComfyUI-Manager {manager}" if manager else
-           "ComfyUI-Manager NOT detected — install_node_pack / install_model / restart_comfyui "
-           "will fail; install packs and models on the host by hand")
-    return (
+
+    weights = _weights_on_disk(info)
+    todo: list[str] = []
+
+    # Torch on the CPU is the failure that reports nothing wrong: every render
+    # works, 50x slower, and the graph is never what's at fault.
+    if devs and all(str(d.get("type", "")).lower() in {"cpu", ""} for d in devs):
+        todo.append(
+            "TORCH IS ON THE CPU — ComfyUI reports no accelerator. If this box has a GPU, "
+            "that's a wrong torch wheel, and everything will run ~50x slower while looking "
+            "correct. Reinstall torch for this card (CUDA/ROCm) in the ComfyUI venv, then "
+            "restart it. If the box genuinely has no GPU, carry on — expect minutes per image."
+        )
+    if not manager:
+        todo.append(_manager_fix())
+    if weights["total"] == 0:
+        todo.append(
+            "NO MODEL WEIGHTS AT ALL — every loader's list is empty, so no graph can run yet. "
+            "search_models(keyword=...) then install_model(name) once Manager is up; a small "
+            "SD1.5 or SDXL checkpoint is the cheapest way to prove the loop end to end. "
+            "Ask the user what they want to generate before pulling 12GB of weights they "
+            "didn't choose."
+        )
+
+    head = (
         f"ComfyUI up at {COMFY_URL}: {len(info)} nodes installed.\n"
-        f"Version: {sysinfo.get('comfyui_version', '?')} | python {sysinfo.get('python_version', '?').split()[0]} "
+        f"Version: {sysinfo.get('comfyui_version', '?')} | python {str(sysinfo.get('python_version', '?')).split()[0]} "
         f"| torch {sysinfo.get('pytorch_version', '?')}\n"
-        f"Devices: {devices or 'n/a'}\n{busy}\n{mgr}."
+        f"Devices: {devices or 'n/a'}\n"
+        f"Weights: {weights['checkpoints']} checkpoint(s), {weights['diffusion']} diffusion model(s), "
+        f"{weights['loras']} LoRA(s), {weights['vae']} VAE(s)\n"
+        f"{busy}\n"
+        + (f"ComfyUI-Manager {manager}." if manager else "ComfyUI-Manager NOT detected.")
     )
+    if not todo:
+        return head + "\n\nReady to build. Discover nodes, check_workflow, then run the loop."
+    return (head + f"\n\n{len(todo)} thing(s) between here and a working render — you have a "
+            "shell, so fix them rather than reporting them:\n\n" + "\n\n".join(
+                f"{i}. {item}" for i, item in enumerate(todo, 1)))
 
 
 @mcp.tool()
@@ -450,7 +548,7 @@ async def search_models(keyword: str = "", model_type: str = "") -> str:
     async with _client() as c:
         r = await c.get("/externalmodel/getlist?mode=cache")
     if r.status_code != 200:
-        return f"Model catalog unavailable (HTTP {r.status_code}). Needs ComfyUI-Manager on the host."
+        return f"Model catalog unavailable (HTTP {r.status_code}).\n\n{_manager_fix()}"
     models = r.json().get("models", [])
     kw, mt = keyword.lower().strip(), model_type.lower().strip()
     hits = []
@@ -1039,8 +1137,7 @@ async def restart_comfyui() -> str:
         return (f"RESTART FAILED — ComfyUI-Manager returned HTTP {r.status_code} and the server "
                 f"is still running the old process. Nothing was restarted, so newly installed "
                 f"nodes will NOT be in /object_info yet.\n\n"
-                f"Most likely ComfyUI-Manager isn't installed. Install it, or restart ComfyUI "
-                f"by hand and re-check with check_comfyui.")
+                f"{_manager_fix()}")
     return ("Restart triggered. ComfyUI is coming back up — wait a few seconds, then call "
             "check_comfyui to confirm it's live and the new nodes are registered.")
 

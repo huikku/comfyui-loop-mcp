@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "comfyui": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/huikku/comfyui-loop-mcp", "comfyui-loop-mcp"],
+      "env": { "COMFYUI_URL": "http://localhost:8188" }
+    }
+  }
+}

@@ -55,11 +55,19 @@ QUEUE = {
     "queue_running": [[0, "running-1", {}, {}, []]],
     "queue_pending": [[1, "pending-1", {}, {}, []], [2, "pending-2", {}, {}, []]],
 }
+# What the stub install looks like — tests flip these to walk a caller through the
+# states a fresh box actually passes through: no Manager, no weights, wrong torch.
+BOX = {"manager": True, "device_type": "cuda", "ckpts": ["sd15.safetensors"]}
 POSTS: list[tuple[str, dict]] = []
 SUBMITS: list[dict] = []
 
 
 class Handler(BaseHTTPRequestHandler):
+    # HTTP/1.0 closes after every response, and httpx pools connections — reusing
+    # one the stub already hung up on surfaces as RemoteProtocolError, which reads
+    # like a bug in the server under test rather than in the fixture.
+    protocol_version = "HTTP/1.1"
+
     def log_message(self, *a):  # silence
         pass
 
@@ -74,11 +82,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/object_info":
-            return self._send(OBJECT_INFO)
+            info = json.loads(json.dumps(OBJECT_INFO))
+            info["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"] = [BOX["ckpts"]]
+            return self._send(info)
         if path == "/system_stats":
             return self._send({"system": {"comfyui_version": "0.3.99", "python_version": "3.12.1 (main)",
                                           "pytorch_version": "2.6.0"},
-                               "devices": [{"name": "cuda:0 NVIDIA", "vram_total": 24_000_000_000,
+                               "devices": [{"name": "cuda:0 NVIDIA", "type": BOX["device_type"],
+                                            "vram_total": 24_000_000_000,
                                             "vram_free": 21_000_000_000}]})
         if path == "/queue":
             return self._send(QUEUE)
@@ -86,6 +97,8 @@ class Handler(BaseHTTPRequestHandler):
             pid = path.rsplit("/", 1)[-1]
             return self._send({pid: HISTORY[pid]} if pid in HISTORY else {})
         if path == "/manager/version":
+            if not BOX["manager"]:
+                return self._send({}, 404)
             body = b'"3.40"'
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
@@ -210,6 +223,36 @@ check("loop_sweep refuses an input that isn't on the node",
       "is not an input" in run(S.loop_sweep(run_id, graph, "2", "nope", [1])))
 check("loop_sweep refuses to run without a loop to record into",
       "loop_start" in run(S.loop_sweep("no-such-run", graph, "2", "denoise", [1])))
+
+# --- the states a fresh box passes through -------------------------------- #
+#
+# A ComfyUI can be up, fully functional, and unable to render anything: no
+# weights on disk, or a CPU torch wheel that works and is 50x slower. Both look
+# like success to anything that only checks whether the API answers.
+out = run(S.check_comfyui())
+check("a healthy install is reported as ready", "Ready to build" in out, out[-200:])
+
+BOX["ckpts"] = []
+out = run(S.check_comfyui())
+check("no weights at all is called out — nothing can run without them",
+      "NO MODEL WEIGHTS" in out, out[-300:])
+check("and it says to ask before pulling gigabytes the user didn't choose",
+      "Ask the user" in out, out[-300:])
+BOX["ckpts"] = ["sd15.safetensors"]
+
+BOX["device_type"] = "cpu"
+out = run(S.check_comfyui())
+check("torch on the CPU is called out — it works, 50x slower, and looks fine",
+      "TORCH IS ON THE CPU" in out, out[-300:])
+BOX["device_type"] = "cuda"
+
+BOX["manager"] = False
+out = run(S.check_comfyui())
+check("a missing Manager comes with the commands, not a shrug",
+      "git clone https://github.com/Comfy-Org/ComfyUI-Manager" in out, out[-400:])
+check("and notes restart_comfyui can't fix it — it IS a Manager route",
+      "restart_comfyui is itself a Manager route" in out, out[-400:])
+BOX["manager"] = True
 
 # --- what happens when there is no ComfyUI at all ------------------------- #
 #
