@@ -12,7 +12,8 @@ it no longer remembers the better pass.
 So the best-so-far GRAPH and the append-only ledger live on disk, keyed by run.
 Reverting becomes a tool call, not an act of recall.
 
-State dir via COMFY_MCP_STATE_DIR (default ~/.comfy-mcp/runs).
+State dir via COMFY_LOOP_STATE_DIR (default ~/.comfyui-loop-mcp/runs; an
+existing ~/.comfy-mcp/runs from before the rename keeps being used).
 """
 
 from __future__ import annotations
@@ -24,9 +25,23 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-STATE_DIR = Path(
-    os.environ.get("COMFY_MCP_STATE_DIR", str(Path.home() / ".comfy-mcp" / "runs"))
-)
+def _default_state_dir() -> Path:
+    """Where runs live when nothing is configured.
+
+    The package was called `comfy-mcp` before the rename, and a run in flight is
+    exactly the thing that must not disappear under an upgrade — so an existing
+    legacy dir keeps being used until it is empty.
+    """
+    current = Path.home() / ".comfyui-loop-mcp" / "runs"
+    legacy = Path.home() / ".comfy-mcp" / "runs"
+    if not current.exists() and legacy.is_dir() and any(legacy.glob("*.json")):
+        return legacy
+    return current
+
+
+STATE_DIR = Path(os.environ["COMFY_LOOP_STATE_DIR"]) if os.environ.get(
+    "COMFY_LOOP_STATE_DIR"
+) else _default_state_dir()
 
 # An outcome is the model's verdict on a pass, relative to the best-so-far.
 OUTCOMES = ("better", "worse", "same")
@@ -124,6 +139,25 @@ def record(
     return {"run": run, "promoted": promoted, "pass_n": n}
 
 
+def add_sweep(run_id: str, param: str, entries: list[dict]) -> dict[str, Any] | None:
+    """Record a fan-out of one parameter across several values, before any verdict.
+
+    A sweep is the one moment the loop is legitimately many-runs-wide, and it is
+    also the moment most exposed to compaction: N prompt_ids and which value each
+    stands for is exactly the kind of bookkeeping that lives in context and dies
+    there. Written down, a compacted model can pick the thread back up from
+    loop_ledger instead of re-running the sweep.
+    """
+    run = _load(run_id)
+    if run is None:
+        return None
+    run.setdefault("sweeps", []).append(
+        {"param": param, "at": time.strftime("%Y-%m-%d %H:%M:%S"), "entries": entries}
+    )
+    _save(run)
+    return run
+
+
 def best(run_id: str) -> dict[str, Any] | None:
     run = _load(run_id)
     return run.get("best") if run else None
@@ -158,6 +192,13 @@ def format_ledger(run: dict[str, Any]) -> str:
         lines.append(f"  pass {p['n']}  {p['change']}{score}  → {mark}{note}")
     if not lines:
         lines = ["  (no passes recorded yet)"]
+    for sw in run.get("sweeps", []):
+        lines.append(f"  sweep on {sw['param']} ({sw['at']}) — judge these and record the winner:")
+        lines.extend(
+            f"      {e.get('value')!r}  ->  prompt_id {e.get('prompt_id')}"
+            + (f"  ({e['error']})" if e.get("error") else "")
+            for e in sw.get("entries", [])
+        )
     b = run.get("best")
     head = [
         f"Run {run['run_id']} — {run.get('status')}",

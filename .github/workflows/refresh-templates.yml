@@ -1,7 +1,7 @@
 name: Refresh template catalog
 
-# Regenerates the compressed template-catalog snapshot bundled with comfy-mcp
-# (comfy_mcp/data/templates_index.json.gz) from Comfy-Org/workflow_templates, and
+# Regenerates the compressed template-catalog snapshot bundled with comfyui-loop-mcp
+# (comfy_loop/data/templates_index.json.gz) from Comfy-Org/workflow_templates, and
 # commits it if it changed. Keeps the offline/fast catalog current — the upstream
 # catalog grows, and a stale snapshot silently hides new templates.
 
@@ -28,10 +28,10 @@ jobs:
 
       - name: Commit if changed
         run: |
-          if [[ -n "$(git status --porcelain comfy_mcp/data/templates_index.json.gz)" ]]; then
+          if [[ -n "$(git status --porcelain comfy_loop/data/templates_index.json.gz)" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add comfy_mcp/data/templates_index.json.gz
+            git add comfy_loop/data/templates_index.json.gz
             git commit -m "chore: refresh template catalog snapshot"
             git push
           else

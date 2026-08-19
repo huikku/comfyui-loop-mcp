@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 John Huikku · Alienrobot LLC · alienrobot.com
 # SPDX-License-Identifier: MIT
-"""Build the compressed template-catalog index bundled with comfy-mcp.
+"""Build the compressed template-catalog index bundled with comfyui-loop-mcp.
 
 Fetches Comfy-Org/workflow_templates' templates/index.json, flattens it to a
 compact {name, title, description, category} list, and writes it gzipped to
-comfy_mcp/data/templates_index.json.gz.
+comfy_loop/data/templates_index.json.gz.
 
 Only the *index* is bundled (~30 KB gz) — the ~570 workflow JSONs (~28 MB) stay
 in the repo and are fetched on demand by get_template. Stdlib only, so the
@@ -23,7 +23,7 @@ import urllib.request
 from pathlib import Path
 
 REPO_RAW = "https://raw.githubusercontent.com/Comfy-Org/workflow_templates"
-OUT = Path(__file__).resolve().parents[1] / "comfy_mcp" / "data" / "templates_index.json.gz"
+OUT = Path(__file__).resolve().parents[1] / "comfy_loop" / "data" / "templates_index.json.gz"
 
 
 def fetch(url: str) -> object:

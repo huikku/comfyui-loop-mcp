@@ -1,6 +1,6 @@
 # Copyright (c) 2026 John Huikku · Alienrobot LLC · alienrobot.com
 # SPDX-License-Identifier: MIT
-"""Safe (non-mutating) integration smoke test for comfy-mcp.
+"""Safe (non-mutating) integration smoke test for comfyui-loop-mcp.
 
 Exercises every read-only + generation path against a live ComfyUI via the MCP
 protocol (spawns the server over stdio). Does NOT install anything or restart
@@ -47,7 +47,7 @@ async def gen_and_fetch(s, graph: dict) -> bool:
 
 
 async def main() -> int:
-    params = StdioServerParameters(command="comfy-mcp", env={**os.environ, "COMFYUI_URL": URL})
+    params = StdioServerParameters(command="comfyui-loop-mcp", env={**os.environ, "COMFYUI_URL": URL})
     async with stdio_client(params) as (r, w):
         async with ClientSession(r, w) as s:
             await s.initialize()

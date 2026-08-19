@@ -1,6 +1,6 @@
 # Design position: discovery vs. repair
 
-A north star for `comfy-mcp`, written after benchmarking our approach against the
+A north star for `comfyui-loop-mcp`, written after benchmarking our approach against the
 official Comfy Cloud MCP on live installs. It exists to keep us honest about
 where a local, bring-your-own-ComfyUI tool genuinely wins, where it doesn't, and
 what to build next. Read it before adding features that drift from that focus.
@@ -109,7 +109,9 @@ theirs — it's the combination, and we're positioned to build it:
   pinning versions.
 - **Added (informed by the cloud, on-identity):** `template_slots` + `run_template`
   with input overrides — run a known-good graph without loading the JSON into
-  context (litegraph→API under the hood; subgraph templates reported, not expanded).
+  context (litegraph→API under the hood; **subgraph templates now expanded and
+  rewired**, promoted widgets kept — roughly half the shipped catalog is authored
+  that way, so "reported, not expanded" meant half the catalog didn't run).
   Still open: enrich the template index with `requiresCustomNodes`/`models`/`usage`
   (already in the open catalog data) and typed `list_nodes` filters.
 - **Model *discovery + download* — now closed** (`search_models` + `install_model`).
@@ -118,8 +120,20 @@ theirs — it's the combination, and we're positioned to build it:
   (loaders re-scan). This was the half-repair gap; nodes AND models are now covered.
   A broader source (HuggingFace/Civitai search, as the cloud does) remains a possible
   extension, still subject to the verify-against-ground-truth rule.
-- **Don't chase:** becoming a cloud catalog or a `cql`-style graph query engine.
-  Those are the cloud's game; they don't serve the local/loop identity.
+- **Added (informed by [Comfy-Org/comfy-mcp](https://github.com/Comfy-Org/comfy-mcp),
+  on-identity):** `check_workflow` (one pre-flight answer sorted by what the caller
+  has to *do*: install a pack, fetch a model, fix the graph), non-blocking
+  `job_status` / per-job `cancel_job`, `free_vram`, `comfyui_logs`, `update_comfyui`,
+  and `find_missing_nodes` accepting a graph you already have. Each one is something
+  a **loop** needs — the pre-flight because a wasted submit costs a round trip, the
+  logs because a run that dies mid-execution explains itself nowhere else, the VRAM
+  free because cached passes are what OOM the next one.
+- **Don't chase:** becoming a cloud catalog or a `cql`-style graph query engine;
+  accounts, credits and hosted partner models (they contradict "nothing leaves your
+  machine", and the official local server already does them properly); owning the
+  ComfyUI **process** (an HTTP client cannot start a server that isn't running, and
+  pointing this at a box with no shell is a supported case). Those are someone
+  else's game; they don't serve the local/loop identity.
 
 ## One-line summary
 

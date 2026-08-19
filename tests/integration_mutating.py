@@ -7,7 +7,7 @@ These are gated, not skipped. They genuinely download files onto the box and
 restart the server, so running them has to be a decision — but "it mutates" is a
 reason to put a gate in front of a test, not a reason to ship the tool untested.
 
-    COMFY_MCP_ALLOW_MUTATION=1 COMFYUI_URL=http://localhost:8188 \
+    COMFY_LOOP_ALLOW_MUTATION=1 COMFYUI_URL=http://localhost:8188 \
         python tests/integration_mutating.py
 
 Without the env var it refuses to run and tells you what it would have done.
@@ -56,15 +56,15 @@ async def wait_up(s, tries: int = 40) -> bool:
 
 
 async def main() -> int:
-    if os.environ.get("COMFY_MCP_ALLOW_MUTATION") != "1":
+    if os.environ.get("COMFY_LOOP_ALLOW_MUTATION") != "1":
         print("REFUSING TO RUN — this suite changes the ComfyUI host.\n")
         print(f"  It would install the model  : {MODEL}")
         print(f"  It would install the pack   : {PACK}")
         print( "  It would restart ComfyUI    : twice")
-        print("\nSet COMFY_MCP_ALLOW_MUTATION=1 if that is what you want.")
+        print("\nSet COMFY_LOOP_ALLOW_MUTATION=1 if that is what you want.")
         return 0
 
-    params = StdioServerParameters(command="comfy-mcp", env={**os.environ, "COMFYUI_URL": URL})
+    params = StdioServerParameters(command="comfyui-loop-mcp", env={**os.environ, "COMFYUI_URL": URL})
     async with stdio_client(params) as (r, w):
         async with ClientSession(r, w) as s:
             await s.initialize()

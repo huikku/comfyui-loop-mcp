@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from comfy_mcp.compress import litegraph_to_api
+from comfy_loop.compress import litegraph_to_api
 
 OBJECT_INFO = {
     "CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["m.safetensors"]]}}},

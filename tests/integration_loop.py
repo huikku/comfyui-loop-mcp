@@ -15,7 +15,7 @@ agent tells it is not a ratchet — and in a long run the agent is exactly the t
 that goes wrong.
 
 Non-mutating: installs nothing, restarts nothing (see README for those). Loop
-state goes to a temp dir, never to the real ~/.comfy-mcp.
+state goes to a temp dir, never to the real ~/.comfyui-loop-mcp.
 
 Run:  COMFYUI_URL=http://localhost:8188 python tests/integration_loop.py
 """
@@ -110,10 +110,10 @@ async def render(s, g: dict) -> dict | None:
 
 
 async def main() -> int:
-    state = tempfile.mkdtemp(prefix="comfy-mcp-looptest-")
+    state = tempfile.mkdtemp(prefix="comfyui-loop-mcp-looptest-")
     params = StdioServerParameters(
-        command="comfy-mcp",
-        env={**os.environ, "COMFYUI_URL": URL, "COMFY_MCP_STATE_DIR": state},
+        command="comfyui-loop-mcp",
+        env={**os.environ, "COMFYUI_URL": URL, "COMFY_LOOP_STATE_DIR": state},
     )
     try:
         async with stdio_client(params) as (r, w):
@@ -122,7 +122,7 @@ async def main() -> int:
 
                 # ---------------- upload ----------------
                 from PIL import Image
-                probe = Path(tempfile.gettempdir()) / "comfy_mcp_upload_probe.png"
+                probe = Path(tempfile.gettempdir()) / "comfy_loop_upload_probe.png"
                 Image.new("RGB", (64, 64), (200, 30, 30)).save(probe)
                 up = txt(await s.call_tool("upload_image", {"path": str(probe)}))
                 check("upload_image", "Uploaded as" in up, up.strip().splitlines()[0][:60])
@@ -242,9 +242,9 @@ async def main() -> int:
         # against a throwaway stub, so the real ComfyUI is never touched.
         port = await _stub_404()
         stub = StdioServerParameters(
-            command="comfy-mcp",
+            command="comfyui-loop-mcp",
             env={**os.environ, "COMFYUI_URL": f"http://127.0.0.1:{port}",
-                 "COMFY_MCP_STATE_DIR": state},
+                 "COMFY_LOOP_STATE_DIR": state},
         )
         async with stdio_client(stub) as (r2, w2):
             async with ClientSession(r2, w2) as s2:

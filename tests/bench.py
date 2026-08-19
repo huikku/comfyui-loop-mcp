@@ -1,6 +1,6 @@
 # Copyright (c) 2026 John Huikku · Alienrobot LLC · alienrobot.com
 # SPDX-License-Identifier: MIT
-"""Compression + conversion metrics for comfy-mcp (read-only).
+"""Compression + conversion metrics for comfyui-loop-mcp (read-only).
 
 Measures, across the live node set and a broad template sample:
   A. compact-node vs raw object_info size
@@ -17,7 +17,7 @@ import statistics as st
 
 import httpx
 
-from comfy_mcp.compress import compact_node, flowzip_deflate, flowzip_inflate, litegraph_to_api
+from comfy_loop.compress import compact_node, flowzip_deflate, flowzip_inflate, litegraph_to_api
 
 BASE = os.environ.get("COMFYUI_URL", "http://localhost:8188")
 GH = "https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main"

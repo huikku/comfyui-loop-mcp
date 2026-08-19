@@ -21,7 +21,7 @@ import io
 from typing import Any
 
 from PIL import Image as PILImage
-from PIL import ImageChops, ImageFilter, ImageStat
+from PIL import ImageChops, ImageDraw, ImageFilter, ImageFont, ImageStat
 
 
 def _open(data: bytes) -> PILImage.Image:
@@ -39,6 +39,46 @@ def _match_size(a: PILImage.Image, b: PILImage.Image) -> tuple[PILImage.Image, P
     if a.size != b.size:
         b = b.resize(a.size, PILImage.LANCZOS)
     return a, b
+
+
+def annotate(data: bytes, text: str) -> bytes:
+    """Burn a warning onto a comparison image.
+
+    For the case where the comparison is legitimate to render but unsafe to trust
+    — mismatched clip lengths, say. Returning the picture with no caveat invites
+    exactly the wrong conclusion, and a caveat in the text response is easy to
+    skim past when there is an image right there. Put it on the pixels.
+    """
+    img = _open(data)
+
+    # Scale the type to the canvas. A comparison of two 1080p frames is ~3840px
+    # wide, where the default bitmap font is a few illegible pixels tall — an
+    # unreadable warning is barely better than no warning at all.
+    size = max(13, img.width // 90)
+    try:
+        font = ImageFont.load_default(size=size)
+    except TypeError:  # Pillow < 10.1 cannot scale the default font
+        font, size = ImageFont.load_default(), 11
+    pad = max(6, size // 2)
+    wrap_at = max(40, int(img.width / (size * 0.62)))
+
+    lines: list[str] = []
+    for para in text.split("\n"):
+        while len(para) > wrap_at:
+            cut = para.rfind(" ", 0, wrap_at)
+            cut = cut if cut > 0 else wrap_at
+            lines.append(para[:cut])
+            para = para[cut:].lstrip()
+        lines.append(para)
+
+    step = int(size * 1.35)
+    bar = step * len(lines) + pad * 2
+    canvas = PILImage.new("RGB", (img.width, img.height + bar), (120, 20, 20))
+    canvas.paste(img, (0, bar))
+    draw = ImageDraw.Draw(canvas)
+    for i, line in enumerate(lines):
+        draw.text((pad, pad + step * i), line, fill=(255, 240, 240), font=font)
+    return _encode(canvas)
 
 
 def side_by_side(a: bytes, b: bytes, gap: int = 12) -> bytes:

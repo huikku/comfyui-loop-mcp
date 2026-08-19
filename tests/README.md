@@ -1,4 +1,4 @@
-# comfy-mcp tests
+# comfyui-loop-mcp tests
 
 Mostly integration tests — they drive the MCP server against a **live ComfyUI**,
 because the value is in exercising the real API. The one exception is graph
@@ -10,6 +10,65 @@ conversion, which is pure logic and gets a pure test.
 python tests/test_reroute.py
 ```
 
+```bash
+python tests/test_video.py
+```
+
+```bash
+python tests/test_subgraph.py
+```
+
+```bash
+python tests/test_validate.py
+```
+
+```bash
+python tests/test_http_tools.py
+```
+
+The video LOOK tools, exercised against clips synthesized with `lavfi` — no
+ComfyUI, no fixtures in the repo. Skips (rather than fails) without ffmpeg,
+which is the same condition the tools themselves degrade on.
+
+Three cases carry their weight. `frame()` must index by FRAME and different
+indices must actually differ — a test that only asserted "returns a PNG" would
+pass while indexing was silently broken, and indexing by timestamp is the exact
+bug the module exists to prevent. `temporal_stats()` must rank a static clip
+below a moving one, or the number doesn't mean what it claims. And it must
+TERMINATE: the first implementation piped concatenated PPMs and re-opened one
+buffer in a loop, which spins forever because Pillow doesn't reliably advance
+the stream — a hang reads as a crashed client, which is worse than a wrong
+answer.
+
+`test_subgraph.py` covers the other half of conversion: a **subgraph instance
+must be expanded, not skipped**. A subgraph is a canvas-only abstraction — skip it
+and the graph has a hole where the pipe was, and the consumer downstream points at
+a node that no longer exists. Roughly half the shipped catalog is authored this
+way. Covers the basic boundary crossing in both directions, two instances of one
+definition not colliding, nesting two levels deep, a widget promoted onto the
+instance reaching the interior input, interior links serialized as objects rather
+than arrays, and a definition that contains itself terminating instead of
+recursing forever. The last case in the file pins a bug the subgraph work exposed:
+a widget CONVERTED to an input still occupies its `widgets_values` slot, and
+skipping that slot shifts every later widget by one — an `EmptySD3LatentImage`
+with width and height wired hands 1024 to `batch_size`. It runs, which is what
+makes it dangerous.
+
+`test_http_tools.py` runs the control/verify tools against a **stub ComfyUI** —
+a threaded `http.server` answering the same routes with the same payload shapes.
+They are thin tools, which is exactly why they go wrong quietly: a queue entry read
+at the wrong index, a log payload that is a list of dicts rather than lines, an
+error record parsed as "finished but produced no outputs". None of that needs a GPU
+to get wrong, so none of it needs one to test. It pins behaviour a caller depends
+on rather than wording — a failed run is reported as a failure, cancelling a QUEUED
+job does not interrupt the RUNNING one, and a sweep writes its value → prompt_id
+table into durable state (in a temp dir, never the real ledger).
+
+`test_validate.py` pins the pre-flight's one job: separating "install something"
+from "fix the graph". `/prompt` reports both as the same red box, one per submit.
+A checker that finds problems but mislabels them is worse than none — it sends the
+model off installing a pack when the checkpoint filename was simply misspelled.
+
 `litegraph_to_api` must **follow links through `Reroute` nodes**. Reroute is a
 frontend-only passthrough with no backend class, so a link pointing at one has to
 be rewired to the real producer — otherwise the API graph references a node id
@@ -19,7 +78,7 @@ and a cycle. Fails 5/7 against the pre-fix implementation.
 
 ## Prerequisites
 
-- `pip install -e .` (installs `comfy-mcp` + deps)
+- `pip install -e .` (installs `comfyui-loop-mcp` + deps)
 - A reachable ComfyUI with an SD1.5 checkpoint (set `TEST_CKPT` to override the
   default `v1-5-pruned-emaonly.safetensors`).
 - Network access to the GitHub template catalog (for template/bench tests).
@@ -59,7 +118,7 @@ while being handed a worse score, and the ledger must reject the claim, keep
 pass 1 as best, and hand back its graph. A ratchet that believes whatever the
 agent tells it is not a ratchet — and over a long run the agent is precisely the
 component that goes wrong. Loop state is written to a temp dir, never to the
-real `~/.comfy-mcp`.
+real `~/.comfyui-loop-mcp`.
 
 ## Mutating suite — gated behind an env var
 
@@ -69,7 +128,7 @@ downloads a real model, installs a real pack, and restarts ComfyUI twice, so it
 **refuses to run** unless you opt in:
 
 ```bash
-COMFY_MCP_ALLOW_MUTATION=1 COMFYUI_URL=http://localhost:8188 \
+COMFY_LOOP_ALLOW_MUTATION=1 COMFYUI_URL=http://localhost:8188 \
     python tests/integration_mutating.py
 ```
 
@@ -97,7 +156,7 @@ import asyncio, os
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 async def main():
-    p = StdioServerParameters(command="comfy-mcp", env={**os.environ})
+    p = StdioServerParameters(command="comfyui-loop-mcp", env={**os.environ})
     async with stdio_client(p) as (r, w):
         async with ClientSession(r, w) as s:
             await s.initialize()
