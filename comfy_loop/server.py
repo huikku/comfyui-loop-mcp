@@ -23,8 +23,12 @@ from __future__ import annotations
 import gzip
 import json
 import os
+import shutil
+import socket
+import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 try:  # MCP SDK >= 2.0 renamed FastMCP to MCPServer and moved the Image helper
@@ -70,6 +74,14 @@ mcp = _Server(
     "comfyui",
     instructions=(
         "Tools + prompts for building ComfyUI workflows the reliable way.\n\n"
+        "IF COMFYUI ISN'T RUNNING, that is YOUR job, not the user's. This server "
+        "only speaks HTTP — it cannot install or launch anything — but you have a "
+        "shell, and check_comfyui (or any tool that fails to connect) hands back "
+        "the exact commands for THIS machine: start an install it found, or clone "
+        "+ venv + launch if there is none, or open the SSH tunnel when the URL is "
+        "remote. Run them, background the launch, poll check_comfyui until it "
+        "answers, then carry on. Python is already solved — the interpreter "
+        "running this server is a suitable one.\n\n"
         "ALWAYS: discover real nodes/models from the live API (list_nodes / "
         "get_node / list_models) before writing JSON — never guess a node name, "
         "input name, type, or model filename. Build API/prompt format, then "
@@ -110,8 +122,134 @@ mcp = _Server(
 # --------------------------------------------------------------------------- #
 # HTTP helpers
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# NOT RUNNING — what the AGENT should do about it
+#
+# This server can't install or launch anything: it is an HTTP client, and the URL
+# may point at a box it has no shell on. But the agent CALLING it usually does
+# have a shell on this machine, and "ComfyUI is not reachable" is a dead end only
+# if nobody says what to do next. So an unreachable server returns instructions
+# aimed at the caller, specific to what is actually on this machine.
+# --------------------------------------------------------------------------- #
+def _is_local_target() -> bool:
+    host = (urlparse(COMFY_URL).hostname or "").lower()
+    if host in {"localhost", "127.0.0.1", "::1", "0.0.0.0", ""}:
+        return True
+    try:
+        return host in {socket.gethostname().lower(), socket.getfqdn().lower()}
+    except OSError:
+        return False
+
+
+def _comfy_cli_workspace() -> Path | None:
+    """The install comfy-cli last used, if comfy-cli has been here."""
+    cfg = Path.home() / ".config" / "comfy-cli" / "config.ini"
+    try:
+        text = cfg.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        key, _, value = line.partition("=")
+        if key.strip() in {"default_workspace", "recent_path"} and value.strip():
+            return Path(value.strip())
+    return None
+
+
+def _find_local_comfyui() -> Path | None:
+    """A ComfyUI checkout on THIS machine, or None."""
+    seen: list[Path] = []
+    for env in ("COMFYUI_PATH", "COMFYUI_HOME", "COMFY_PATH"):
+        if os.environ.get(env):
+            seen.append(Path(os.environ[env]))
+    ws = _comfy_cli_workspace()
+    if ws:
+        seen.append(ws)
+    home = Path.home()
+    seen += [home / "ComfyUI", home / "comfy" / "ComfyUI", home / "code" / "ComfyUI",
+             home / "github" / "ComfyUI", Path("/opt/ComfyUI"), Path.cwd() / "ComfyUI"]
+    for path in seen:
+        try:
+            if (path / "main.py").is_file() and (path / "comfy").is_dir():
+                return path
+        except OSError:
+            continue
+    return None
+
+
+def _venv_python(root: Path) -> str:
+    for candidate in (root / ".venv" / "bin" / "python", root / "venv" / "bin" / "python"):
+        if candidate.is_file():
+            return str(candidate)
+    return sys.executable
+
+
+def _install_advice(detail: str = "") -> str:
+    """The whole answer to "nothing is listening", addressed to the agent."""
+    port = urlparse(COMFY_URL).port or 8188
+    head = f"ComfyUI is NOT reachable at {COMFY_URL}" + (f" ({detail})" if detail else "") + "."
+
+    if not _is_local_target():
+        host = urlparse(COMFY_URL).hostname
+        return (
+            f"{head}\n\nThat URL is REMOTE ({host}), so nothing you install on this machine "
+            "will fix it — a local ComfyUI would just be a second, unused install. Either:\n"
+            f"  1. open the tunnel and leave COMFYUI_URL at localhost:  ssh -N -L {port}:127.0.0.1:{port} {host}\n"
+            f"  2. or get ComfyUI running on {host} itself (you need a shell THERE, not here),\n"
+            "  3. or point COMFYUI_URL at a ComfyUI you can actually reach.\n"
+            "Do not generate workflow JSON until the API answers — you'd only be guessing node names."
+        )
+
+    found = _find_local_comfyui()
+    ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+    if found:
+        py = _venv_python(found)
+        return (
+            f"{head}\n\nIt IS installed on this machine — {found} — it just isn't running. "
+            "You have a shell here, so start it yourself rather than asking the user to:\n"
+            f"  cd {found} && {py} main.py --port {port}\n"
+            "Run it in the BACKGROUND (it does not return), give it ~15s to load, then call "
+            "check_comfyui again until it answers. A first launch after an update can take "
+            "longer while it recompiles; comfyui_logs won't help until it's up, so read the "
+            "process output instead."
+        )
+
+    return (
+        f"{head}\n\nNo ComfyUI found on this machine either (looked at $COMFYUI_PATH, "
+        "comfy-cli's workspace, ~/ComfyUI, ~/comfy, ~/code, ~/github, /opt). You have a "
+        "shell — install it, don't hand this back to the user:\n"
+        + ("  comfy install            # comfy-cli is on PATH here; this is the short road\n"
+           if shutil.which("comfy") else "")
+        + "  git clone https://github.com/comfyanonymous/ComfyUI ~/ComfyUI\n"
+        f"  cd ~/ComfyUI && {sys.executable} -m venv .venv && .venv/bin/pip install -r requirements.txt\n"
+        "  git clone https://github.com/Comfy-Org/ComfyUI-Manager custom_nodes/ComfyUI-Manager\n"
+        f"  .venv/bin/python main.py --port {port}   # background it\n\n"
+        f"Python is NOT a prerequisite you have to solve: this server is already running on "
+        f"Python {ver} at {sys.executable}, so a suitable interpreter exists here — use it for the venv. "
+        "The torch that requirements.txt pulls is the default wheel; if this box has a GPU whose "
+        "build differs (ROCm, an older CUDA), install the matching torch FIRST or the GPU sits idle. "
+        "ComfyUI-Manager is optional for running graphs but REQUIRED by install_node_pack / "
+        "install_model / restart_comfyui here. Then check_comfyui until it answers."
+    )
+
+
+class _AdvisingTransport(httpx.AsyncHTTPTransport):
+    """Turn "connection refused" into the instructions above, once, for every tool.
+
+    Otherwise `check_comfyui` explains the situation and the other 40 tools raise a
+    bare ConnectError — so an agent that skipped step 0 gets a stack trace where it
+    needed a decision.
+    """
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        try:
+            return await super().handle_async_request(request)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            raise httpx.ConnectError(_install_advice(str(e) or type(e).__name__),
+                                     request=request) from e
+
+
 def _client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(base_url=COMFY_URL, timeout=30.0)
+    return httpx.AsyncClient(base_url=COMFY_URL, timeout=30.0, transport=_AdvisingTransport())
 
 
 async def _manager_version(c: httpx.AsyncClient) -> str | None:
@@ -187,12 +325,12 @@ async def check_comfyui() -> str:
             except Exception:  # noqa: BLE001
                 q = {}
             manager = await _manager_version(c)
+    except httpx.ConnectError as e:
+        # The transport already turned this into the full advice; wrapping it
+        # again would print the whole thing twice.
+        return str(e)
     except Exception as e:  # noqa: BLE001
-        return (
-            f"ComfyUI is NOT reachable at {COMFY_URL} ({e}). "
-            "Check the host/port, or start ComfyUI. Do not generate workflow "
-            "JSON until the API answers — you'd only be guessing node names."
-        )
+        return _install_advice(str(e))
     sysinfo = stats.get("system", {}) or {}
     devices = ", ".join(
         f"{d.get('name')} {round(d.get('vram_free', 0) / 1e9, 1)}/"

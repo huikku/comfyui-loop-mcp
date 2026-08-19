@@ -211,6 +211,68 @@ check("loop_sweep refuses an input that isn't on the node",
 check("loop_sweep refuses to run without a loop to record into",
       "loop_start" in run(S.loop_sweep("no-such-run", graph, "2", "denoise", [1])))
 
+# --- what happens when there is no ComfyUI at all ------------------------- #
+#
+# The agent calling this has a shell; the server does not. So "not reachable"
+# has to come back as instructions it can act on, and it has to differ by
+# situation — starting an install that exists, creating one that doesn't, and
+# NOT installing anything locally when the URL points at another machine (which
+# would leave a second, unused ComfyUI on the wrong box).
+import pathlib  # noqa: E402
+import tempfile  # noqa: E402
+
+DEAD = "http://127.0.0.1:9"
+real_url = S.COMFY_URL
+
+fake = pathlib.Path(tempfile.mkdtemp(prefix="fake-comfyui-")) / "ComfyUI"
+(fake / "comfy").mkdir(parents=True)
+(fake / "main.py").write_text("")
+(fake / ".venv" / "bin").mkdir(parents=True)
+(fake / ".venv" / "bin" / "python").write_text("")
+
+S.COMFY_URL = DEAD
+os.environ["COMFYUI_PATH"] = str(fake)
+out = run(S.check_comfyui())
+check("an installed-but-stopped ComfyUI is reported as stopped, not missing",
+      "isn't running" in out and str(fake) in out, out[:200])
+check("and the start command uses the install's own venv python",
+      f"{fake}/.venv/bin/python main.py" in out, out[:300])
+check("and says to background it — the launch never returns",
+      "BACKGROUND" in out, out[:300])
+
+os.environ["COMFYUI_PATH"] = str(fake.parent / "nope")
+out = run(S.check_comfyui())
+check("with nothing installed, it hands over install commands",
+      "git clone https://github.com/comfyanonymous/ComfyUI" in out, out[:200])
+check("and answers the Python question instead of leaving it open",
+      "Python is NOT a prerequisite" in out and sys.executable in out, out[:400])
+check("and says Manager is what the install/restart tools need",
+      "ComfyUI-Manager" in out, out[:400])
+
+S.COMFY_URL = "http://some-other-box.local:8188"
+out = run(S.check_comfyui())
+check("a REMOTE url does not get local install instructions",
+      "git clone" not in out and "REMOTE" in out, out[:200])
+check("it offers the tunnel instead", "ssh -N -L 8188:127.0.0.1:8188" in out, out[:300])
+
+# The other 40 tools must not just raise a bare ConnectError at an agent that
+# skipped step 0 — the advice is attached at the transport, so every one of them
+# gets it.
+S.COMFY_URL = DEAD
+try:
+    run(S.list_nodes("ksampler"))
+    reached = True
+except Exception as exc:  # noqa: BLE001
+    reached = False
+    check("a tool other than check_comfyui also explains what to do",
+          "NOT reachable" in str(exc) and "git clone" in str(exc), str(exc)[:200])
+if reached:
+    check("a tool other than check_comfyui also explains what to do", False, "no error raised")
+
+check("the advice is not printed twice", run(S.check_comfyui()).count("No ComfyUI found") == 1)
+S.COMFY_URL = real_url
+os.environ.pop("COMFYUI_PATH", None)
+
 srv.shutdown()
 LOOP.close()
 print()

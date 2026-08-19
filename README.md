@@ -126,7 +126,12 @@ job status, log tailing, VRAM headroom, updates. What stays out, on purpose:
 - **Launching and stopping the ComfyUI process.** An HTTP client cannot start a
   server that isn't running, and pointing this at a box you have no shell on is a
   supported case, not an edge one. `restart_comfyui` (via Manager) is the honest
-  limit.
+  limit — but "can't" is not the same as "won't help": the *agent* usually does
+  have a shell, so an unreachable server returns the install/start commands for
+  this machine and expects the agent to run them. Neither this server nor
+  Comfy-Org's installs ComfyUI for you (theirs points you at `comfy install` in a
+  terminal); the difference is that here the instructions come back through the
+  tool call, aimed at whoever can act on them.
 - **Workflow save / share / reproduce as a service.** `save_workflow` hands you a
   round-trip-verified file. Where it lives after that is your business.
 
@@ -187,7 +192,7 @@ The ratchet/ledger/pivot are adapted from [Karpathy's AutoResearch loop](https:/
 **Discover**
 | Tool | Args | Returns |
 |---|---|---|
-| `check_comfyui` | — | Loop step 0, and a real preflight: node count, ComfyUI/torch versions, per-device VRAM **free vs total**, whether ComfyUI-Manager is present (no Manager = no installs, no restart), and whether the queue is already busy — or a clear "not reachable". |
+| `check_comfyui` | — | Loop step 0, and a real preflight. When nothing answers it returns **what to do about it**, specific to this machine — start the install it found, create one, or open the tunnel for a remote URL (see [Troubleshooting](#troubleshooting)). Otherwise: node count, ComfyUI/torch versions, per-device VRAM **free vs total**, whether ComfyUI-Manager is present (no Manager = no installs, no restart), and whether the queue is already busy — or a clear "not reachable". |
 | `list_nodes` | `keyword=""` | Nodes whose **class name or display name** matches (a strict superset of the skill's class-only search). Omit keyword for the count. |
 | `get_node` | `class_name`, `verbose=False` | One node's interface as **compact** `@Name +req:T ?opt:T -out:T` (~90% fewer tokens); `verbose=True` for full JSON (defaults, min/max). |
 | `list_models` | `class_name`, `input_name=""` | The real model files a loader offers **on disk** (ground truth), read from its enum — handles both the legacy list and `COMBO` encodings. Never hallucinate a filename. |
@@ -397,9 +402,16 @@ reachable across the network by default. Two options:
 
 ## Troubleshooting
 
-- **"ComfyUI is NOT reachable"** — it isn't running, is on another port, or (for
-  a remote box) needs a tunnel. Check `COMFYUI_URL`; `check_comfyui` reports the
-  exact URL it tried.
+- **"ComfyUI is NOT reachable"** — the reply is a set of instructions, not a
+  complaint, and they're addressed to the **agent**, which has a shell this
+  server doesn't: it looks for a ComfyUI on this machine (`$COMFYUI_PATH`,
+  comfy-cli's workspace, `~/ComfyUI`, `~/comfy`, `~/code`, `~/github`, `/opt`)
+  and either hands back the start command using that install's own venv python,
+  or the clone + venv + Manager + launch sequence if there is none. If
+  `COMFYUI_URL` is **remote** it deliberately does *not* offer to install
+  locally — that just leaves a second, unused ComfyUI on the wrong box — and
+  gives you the SSH tunnel instead. Every tool returns this, not just
+  `check_comfyui`; the advice is attached at the transport.
 - **Node/model not found** — install the pack/model on the ComfyUI side, then
   **restart ComfyUI** so `/object_info` reflects it (the API is stale until then).
 - **`get_image` returns nothing** — make sure the graph has a `SaveImage` /
