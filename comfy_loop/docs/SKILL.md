@@ -9,6 +9,8 @@ ComfyUI exposes a REST API that tells you exactly which nodes are installed, the
 
 ComfyUI runs at `http://localhost:8188` unless told otherwise.
 
+**If the [`comfyui-loop-mcp`](https://github.com/huikku/comfyui-loop-mcp) server is connected, use its tools instead of the curl below** — same method, less typing, and the parts curl can't do at all. The mapping: `check_comfyui` (step 1) · `list_nodes` / `get_node` / `list_models` (steps 2-3) · `check_workflow` before you submit · `submit_workflow` + `get_result` (step 5) · **`get_image`, which returns the pixels to you** and `compare_images(mode="difference")` (step 6) · `loop_start` / `loop_record` to hold the best-so-far on disk, where a compacted context can't lose it. The curl in this skill is the fallback for when the server isn't there.
+
 ## Step 0 — Pick the JSON format deliberately
 
 Two formats, NOT interchangeable:
@@ -22,20 +24,22 @@ Two formats, NOT interchangeable:
 **Default to API format.** It's robust to generate (no link-id accounting). Produce litegraph only when the goal is a UI-editable file. To run an existing *UI* workflow: convert it to API format (resolve reroute/GetNode/SetNode passthroughs and turn `widgets_values` into named `inputs` using `object_info`), validate in API format, then optionally save litegraph.
 
 ## Install ComfyUI (only if it isn't already running)
-Skip this whenever Step 1 succeeds. If nothing is listening and ComfyUI isn't on the box:
+Skip this whenever Step 1 succeeds.
+
+**If the `comfyui-loop-mcp` server is connected, load its `comfy_install` prompt and follow that** — it is generated against the machine you are on: an install if one already exists (start it, don't clone a second), the interpreter to build the venv from, whether `comfy-cli` is on PATH, and the torch build this box's accelerator actually wants. Any failed tool call returns the short version of the same thing. Don't hand the install back to the user; you have the shell.
+
+Without the MCP, the generic route:
 ```bash
 git clone https://github.com/comfyanonymous/ComfyUI && cd ComfyUI
-python3 -m venv .venv && . .venv/bin/activate
-# NVIDIA / CUDA 12.x. For CPU-only, AMD/ROCm, or Apple Silicon see the repo README.
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-pip install -r requirements.txt
-python main.py --listen 0.0.0.0 --port 8188      # add --cpu if there's no GPU
+python3 -m venv .venv                      # python3 must be >= 3.10
+.venv/bin/pip install -r requirements.txt  # pulls the default torch wheel
+git clone https://github.com/Comfy-Org/ComfyUI-Manager custom_nodes/ComfyUI-Manager
+.venv/bin/python main.py --port 8188       # background it; main.py never returns
 ```
-- **Custom nodes:** install ComfyUI-Manager once, then manage packs through it — or `git clone` each pack into `custom_nodes/` and `pip install -r` its requirements. **Restart ComfyUI** so `/object_info` reflects new nodes.
-  ```bash
-  git clone https://github.com/Comfy-Org/ComfyUI-Manager custom_nodes/ComfyUI-Manager
-  ```
-- **Models** live under `models/<type>/` (`checkpoints`, `loras`, `vae`, `clip`, …). ComfyUI only offers files actually on disk (Step 3).
+- **Check the GPU actually got used** — `.venv/bin/python -c 'import torch; print(torch.cuda.is_available())'`. `False` on an NVIDIA box means a CPU wheel: every render crawls and nothing reports an error. AMD/ROCm needs its own index-url *before* `requirements.txt`; Apple silicon is fine on the default wheel.
+- **Bind to localhost** (the default). Only add `--listen 0.0.0.0` when another machine genuinely has to reach it, and know that you are exposing an unauthenticated server that reads and writes files.
+- **Custom nodes:** ComfyUI-Manager (above) is how you install packs afterwards — and it is what the MCP's `install_node_pack` / `install_model` / `restart_comfyui` drive. **Restart ComfyUI** so `/object_info` reflects new nodes.
+- **Models** live under `models/<type>/` (`checkpoints`, `loras`, `vae`, `clip`, …) and are 2-12 GB each. Check free space first; `extra_model_paths.yaml` points them at a bigger volume. ComfyUI only offers files actually on disk (Step 3).
 - One-liner alternative: `pip install comfy-cli && comfy install`, then `comfy launch`.
 
 ## Step 1 — Confirm ComfyUI is up

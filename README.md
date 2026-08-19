@@ -27,10 +27,12 @@ loop_start ─▶ submit ─▶ get_result ─▶ get_image ─▶ compare_image
                                            loop_finish + loop_report → sign-off
 ```
 
-Companion to [**comfyui-llm-onboarding-prompt**](https://github.com/huikku/comfyui-llm-onboarding-prompt)
-— the pasteable prompts + Claude Code skill this server makes *executable*. Those docs
-ship inside the package, so `comfy_loop` / `comfy_skill` serve them verbatim and never
-drift.
+The method ships with the server. The loop prompt and the Claude Code skill live in
+[`comfy_loop/docs/`](comfy_loop/docs/) and are packaged into the wheel, so
+`comfy_loop` / `comfy_skill` / `comfy_install` serve them verbatim from wherever the
+server is installed — one source, nothing to keep in sync. (They started life in
+`comfyui-llm-onboarding-prompt`, which is no longer maintained; this repo is where
+they're kept now.)
 
 - [How it compares to Comfy's own MCP servers](#how-it-compares-to-comfys-own-mcp-servers) — the local one and the cloud one, honestly
 - [Design position: discovery vs. repair](DESIGN.md) — where a local tool genuinely wins/loses, and the north star
@@ -183,8 +185,14 @@ The ratchet/ledger/pivot are adapted from [Karpathy's AutoResearch loop](https:/
 
 > MCP can't *force* behavior — it exposes capabilities and guidance. This makes
 > looping the strong, well-scoped default the agent is repeatedly told to prefer.
-> For a hard guarantee in Claude Code, also install the auto-loading
-> [`comfyui-workflows` skill](https://github.com/huikku/comfyui-llm-onboarding-prompt/blob/main/skills/comfyui-workflows/SKILL.md) — skill = always-on discipline, MCP = the tools it drives.
+> For a hard guarantee in Claude Code, install the same text as an always-on skill:
+> ```bash
+> mkdir -p ~/.claude/skills/comfyui-workflows
+> cp comfy_loop/docs/SKILL.md ~/.claude/skills/comfyui-workflows/
+> ```
+> Skill = always-on discipline, MCP = the tools it drives. It's the same file the
+> `comfy_skill` prompt serves, so they can't disagree — and it defers to
+> `comfy_install` for bootstrapping rather than carrying its own stale recipe.
 
 ---
 

@@ -22,13 +22,13 @@ ComfyUI runs at `http://localhost:8188` unless I say otherwise. Never guess or h
 ```bash
 curl -s http://localhost:8188/object_info | head -c 100
 ```
-Nothing back ⇒ it isn't running (or it's on another port). If it's genuinely absent, install + start it:
+Nothing back ⇒ it isn't running (or it's on another port). Bringing it up is YOUR job — you have a shell, the server doesn't. With the MCP connected, load the **`comfy_install`** prompt: it is written against this machine (an existing install to start, the interpreter for the venv, the torch build this accelerator wants). Without it:
 ```bash
 git clone https://github.com/comfyanonymous/ComfyUI && cd ComfyUI
-python3 -m venv .venv && . .venv/bin/activate
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124  # CPU/AMD/Apple: see repo README
-pip install -r requirements.txt
-python main.py --listen 0.0.0.0 --port 8188   # add --cpu if no GPU
+python3 -m venv .venv                      # >= 3.10
+.venv/bin/pip install -r requirements.txt
+git clone https://github.com/Comfy-Org/ComfyUI-Manager custom_nodes/ComfyUI-Manager
+.venv/bin/python main.py --port 8188       # background it; verify torch.cuda.is_available()
 ```
 
 **Discover the real nodes.**

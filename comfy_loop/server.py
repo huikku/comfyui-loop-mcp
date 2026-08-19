@@ -60,9 +60,10 @@ _TPL_REF = os.environ.get("COMFYUI_TEMPLATES_REF", "main")
 _TPL_BASE = f"{_TPL_REPO}/{_TPL_REF}"
 
 # The loop/skill docs ship INSIDE the package, so an installed server is
-# self-contained — a `pip install` from anywhere still serves the prompts. They're
-# vendored from huikku/comfyui-llm-onboarding-prompt (same author, MIT); point
-# COMFYUI_ONBOARDING_DIR at a checkout of that repo to serve them live instead.
+# self-contained — a `pip install` from anywhere still serves the prompts. This
+# repo is their source of truth (they began life in huikku/comfyui-llm-onboarding-
+# prompt, which is no longer maintained); point COMFYUI_ONBOARDING_DIR at another
+# checkout to serve your own copies instead.
 _PKG_DOCS = Path(__file__).resolve().parent / "docs"
 _DOCS_DIR = (
     Path(os.environ["COMFYUI_ONBOARDING_DIR"])
@@ -2119,14 +2120,13 @@ the safe posture.
 If the launch fails, its traceback is in the terminal you started it in, not in
 `comfyui_logs` — that reads the server's log over HTTP, which needs the server up.
 
-## Do you also need the skill?
+## Do you also need a skill?
 No. The method ships here: the `comfy_loop` / `comfy_skill` prompts and this
-server's handshake instructions carry it to any MCP client. The companion
-[comfyui-workflows skill](https://github.com/huikku/comfyui-llm-onboarding-prompt)
-is the Claude Code-specific version — it auto-loads on the trigger words instead
-of waiting to be asked for, which is worth having if you forget to pull a prompt.
-Where the two disagree about installing, THIS recipe wins: it was filled in from
-the machine you are on.
+server's handshake instructions carry it to any MCP client. In Claude Code you can
+ALSO drop the same text in as an always-on skill — `comfy_loop/docs/SKILL.md` in
+this repo, copied to `~/.claude/skills/comfyui-workflows/` — so it loads on the
+trigger words instead of waiting to be asked for. Same source file either way, so
+the two cannot drift.
 """
 
 

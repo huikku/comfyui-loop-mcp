@@ -21,7 +21,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/huikku/comfyui-loop-mcp"
-"The prompts + skill" = "https://github.com/huikku/comfyui-llm-onboarding-prompt"
+Issues = "https://github.com/huikku/comfyui-loop-mcp/issues"
 
 [project.scripts]
 comfyui-loop-mcp = "comfy_loop.server:main"
