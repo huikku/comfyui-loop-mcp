@@ -273,6 +273,19 @@ check("the advice is not printed twice", run(S.check_comfyui()).count("No ComfyU
 S.COMFY_URL = real_url
 os.environ.pop("COMFYUI_PATH", None)
 
+# The bootstrap recipe has to be about THIS machine, or it is just a README.
+recipe = S.comfy_install()
+check("comfy_install names the interpreter to build the venv from", sys.executable in recipe)
+check("comfy_install says Python is already solved",
+      "do NOT need to install Python" in recipe, recipe[:200])
+check("comfy_install picks a torch story for this box's accelerator",
+      any(k in recipe for k in ("NVIDIA detected", "ROCm", "Apple silicon", "No GPU detected")),
+      recipe[:400])
+check("comfy_install sets up Manager, since half the EXTEND tools need it",
+      "ComfyUI-Manager" in recipe)
+check("comfy_install warns about where models land",
+      "extra_model_paths" in recipe, recipe[-800:])
+
 srv.shutdown()
 LOOP.close()
 print()

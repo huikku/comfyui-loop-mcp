@@ -90,7 +90,8 @@ discipline, not an endpoint.
 | **Subgraph templates** | expanded and rewired (promoted widgets kept) | expanded client-side |
 | **Token cost of discovery** | compact node notation (93% off `object_info`, 987 nodes); FlowZip graphs ~72% off litegraph | not a stated goal |
 | **Install what's missing** | ComfyUI-Manager: `install_node_pack`, `install_model`, `restart_comfyui`, `update_comfyui` | registry `install_node`, `download_model` (backgrounded, cancellable), full update/version-switch |
-| **Run the ComfyUI process** | no — restart only (via Manager) | `launch_comfyui`, `stop_comfyui`, `switch_comfyui_version` |
+| **Zero to running** | the **agent** does it: `comfy_install` is a prompt filled in from this machine (existing install, this Python, this box's accelerator), and any failed call returns the start/install commands | tells you to run `comfy install` in a terminal; `launch_comfyui` / `stop_comfyui` / `switch_comfyui_version` drive an install that already exists |
+| **Run the ComfyUI process** | no — restart only (via Manager); the agent owns the shell | `comfy-cli` subprocesses, so yes |
 | **Hosted/partner models, accounts, credits** | no, deliberately | `auth_login`, `partner_generate`, spend-consent gates |
 | **Job control** | `submit_workflow`, `job_status`, `cancel_job`, `get_queue`, `interrupt` | one `job` tool: status / wait / watch / cancel / queue |
 | **MCP surface** | 43 tools + 2 prompts + 3 resources | 39 tools |
@@ -148,7 +149,7 @@ job status, log tailing, VRAM headroom, updates. What stays out, on purpose:
 | | `get_result`, `get_image` (returns the actual image) | **Look** |
 | | `loop_start`, `loop_record`, `loop_sweep`, `loop_best`, `loop_ledger`, `loop_finish`, `loop_report` | Ratchet + ledger, on disk |
 | | `system_stats`, `get_queue`, `job_status`, `cancel_job`, `interrupt`, `free_vram`, `comfyui_logs` | Control |
-| **Prompts** | `comfy_loop` (full method), `comfy_skill` (compact) | The whole discipline, one command |
+| **Prompts** | `comfy_loop` (full method), `comfy_skill` (compact), `comfy_install` (bootstrap) | The whole discipline, one command |
 | **Resources** | `comfyui://object_info` (live), `comfyui://loop-method`, `comfyui://skill` | Truth + docs |
 
 Three things make it *loop-aware* rather than a plain API wrapper:
@@ -264,8 +265,14 @@ rejected, and it can hand back a regression as final. So they live on disk.
 | `free_vram` | `unload_models=True` | Unloads models and resets the executor cache (`POST /free`). The loop's own cheapness works against you here — cached passes are VRAM — so this is the cheap thing to try before rewriting a graph that OOM'd. Not immediate (lands on the queue worker's next iteration) and can't touch another process's VRAM; confirm with `system_stats`. |
 | `comfyui_logs` | `lines=60`, `grep=""` | Tails ComfyUI's own log, where failures explain themselves: the traceback inside a node, the OOM, the custom node that failed to import at startup (which is *why* its class is missing from `object_info`). |
 
-**Prompts:** `comfy_loop` (full autonomous method), `comfy_skill` (compact skill) —
-both served verbatim from the repo's markdown.
+**Prompts:** `comfy_loop` (full autonomous method) and `comfy_skill` (compact
+skill), both served verbatim from the repo's markdown, plus **`comfy_install`** —
+the bootstrap recipe, generated against the machine the server is running on: an
+install if one is already there, the interpreter to build the venv from (this
+server's own, so Python is never a prerequisite to solve), whether `comfy-cli` and
+`git` are present, and the torch build this box's accelerator actually wants
+(CUDA / ROCm / MPS / none). The server can't run any of it; the agent can, and
+that is who it's addressed to.
 **Resources:** `comfyui://object_info` (live full dump), `comfyui://loop-method`,
 `comfyui://skill`.
 

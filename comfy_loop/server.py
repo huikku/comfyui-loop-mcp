@@ -216,7 +216,9 @@ def _install_advice(detail: str = "") -> str:
     return (
         f"{head}\n\nNo ComfyUI found on this machine either (looked at $COMFYUI_PATH, "
         "comfy-cli's workspace, ~/ComfyUI, ~/comfy, ~/code, ~/github, /opt). You have a "
-        "shell — install it, don't hand this back to the user:\n"
+        "shell — install it, don't hand this back to the user. Load the "
+        "`comfy_install` prompt for the full recipe (torch choice for this box, "
+        "Manager, where models should live); the short version:\n"
         + ("  comfy install            # comfy-cli is on PATH here; this is the short road\n"
            if shutil.which("comfy") else "")
         + "  git clone https://github.com/comfyanonymous/ComfyUI ~/ComfyUI\n"
@@ -2018,6 +2020,116 @@ async def save_workflow(workflow: dict, name: str = "", save: bool = True) -> st
 # --------------------------------------------------------------------------- #
 # PROMPTS — the loop methodology, so any client can pull it in
 # --------------------------------------------------------------------------- #
+@mcp.prompt(title="Install and launch ComfyUI (for an agent with a shell)")
+def comfy_install() -> str:
+    """The full bootstrap recipe, written against THIS machine.
+
+    Load it when there is no ComfyUI to talk to. The server can't run any of it —
+    it speaks HTTP — but the agent asking has a shell, so the recipe is addressed
+    to the agent and filled in with what is actually here: the interpreter to
+    build the venv from, an install if one already exists, whether comfy-cli is
+    on PATH, and which torch build this box's accelerator wants.
+    """
+    found = _find_local_comfyui()
+    port = urlparse(COMFY_URL).port or 8188
+    py = sys.executable
+    ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+    has_cli = shutil.which("comfy") is not None
+    has_git = shutil.which("git") is not None
+
+    if sys.platform == "darwin":
+        accel = ("Apple silicon: the default wheel is right — torch uses MPS. "
+                 "Launch with `--force-fp16` if VRAM is tight.")
+    elif shutil.which("nvidia-smi"):
+        accel = ("NVIDIA detected (nvidia-smi is on PATH): the default CUDA wheel from "
+                 "requirements.txt is normally correct. Confirm after install with "
+                 "`.venv/bin/python -c 'import torch; print(torch.cuda.is_available())'` — "
+                 "False means you installed a CPU wheel and every render will crawl.")
+    elif Path("/opt/rocm").exists() or shutil.which("rocminfo"):
+        accel = ("AMD/ROCm detected: install the ROCm torch build FIRST "
+                 "(`pip install --index-url https://download.pytorch.org/whl/rocm6.2 torch`), "
+                 "then requirements.txt, or pip will pull the CUDA wheel and the GPU sits idle.")
+    else:
+        accel = ("No GPU detected. ComfyUI runs on CPU, slowly — fine for wiring up a graph, "
+                 "not for iterating on quality. If this box does have a card, find out why it "
+                 "isn't visible before installing.")
+
+    state = (f"ALREADY INSTALLED at {found} (start it, don't clone another):\n"
+             f"  cd {found} && {_venv_python(found)} main.py --port {port}\n"
+             if found else
+             "No ComfyUI found here (checked $COMFYUI_PATH, comfy-cli's workspace, ~/ComfyUI, "
+             "~/comfy, ~/code, ~/github, /opt).\n")
+
+    return f"""\
+# Bring up a ComfyUI on this machine
+
+You have a shell; this MCP server does not. So this is yours to run — do it,
+don't hand it back to the user. Target: something answering {COMFY_URL}.
+
+## What's already here
+{state}
+Python {ver} at {py} — this server is running on it, so it is a suitable
+interpreter and you do NOT need to install Python.
+git: {"present" if has_git else "MISSING — install it first"}.
+comfy-cli: {"on PATH — `comfy install` is the short road and sets up Manager for you"
+            if has_cli else "not installed (fine, the manual route below is equivalent)"}.
+Accelerator: {accel}
+
+## Install
+```bash
+git clone https://github.com/comfyanonymous/ComfyUI ~/ComfyUI
+cd ~/ComfyUI
+{py} -m venv .venv
+.venv/bin/pip install -r requirements.txt
+git clone https://github.com/Comfy-Org/ComfyUI-Manager custom_nodes/ComfyUI-Manager
+.venv/bin/pip install -r custom_nodes/ComfyUI-Manager/requirements.txt
+```
+
+ComfyUI-Manager is optional for running graphs but REQUIRED by this server's
+`install_node_pack`, `install_model`, `restart_comfyui` and `update_comfyui`.
+Installing it now costs a minute and saves a reinstall later.
+
+## Models live somewhere with room
+Checkpoints are 2-12 GB each and they accumulate. Before downloading any, check
+the free space on whatever volume `~/ComfyUI/models` lands on. If it's tight,
+put the models on a bigger disk and point ComfyUI at them rather than filling
+the system volume:
+```bash
+cp ~/ComfyUI/extra_model_paths.yaml.example ~/ComfyUI/extra_model_paths.yaml
+# edit: base_path: /big/volume/comfy-models
+```
+Filling the root filesystem takes down more than ComfyUI.
+
+## Launch
+```bash
+cd ~/ComfyUI && .venv/bin/python main.py --port {port}
+```
+Run it in the BACKGROUND — `main.py` does not return. First start takes ~15-60s
+(model scan, custom-node import). Leave `--listen` off unless you specifically
+want it reachable from other machines: the default binds to localhost, which is
+the safe posture.
+
+## Verify, then work
+1. `check_comfyui` until it answers — it reports node count, VRAM free, whether
+   Manager registered, and whether the queue is busy.
+2. No models yet? `search_models(keyword=...)` then `install_model(name)`.
+3. `check_workflow` any graph before submitting it.
+4. Then the loop: submit -> get_result -> get_image -> LOOK -> loop_record.
+
+If the launch fails, its traceback is in the terminal you started it in, not in
+`comfyui_logs` — that reads the server's log over HTTP, which needs the server up.
+
+## Do you also need the skill?
+No. The method ships here: the `comfy_loop` / `comfy_skill` prompts and this
+server's handshake instructions carry it to any MCP client. The companion
+[comfyui-workflows skill](https://github.com/huikku/comfyui-llm-onboarding-prompt)
+is the Claude Code-specific version — it auto-loads on the trigger words instead
+of waiting to be asked for, which is worth having if you forget to pull a prompt.
+Where the two disagree about installing, THIS recipe wins: it was filled in from
+the machine you are on.
+"""
+
+
 @mcp.prompt(title="ComfyUI build-and-loop method")
 def comfy_loop() -> str:
     """The full autonomous build→run→look→critique→fix loop prompt.
