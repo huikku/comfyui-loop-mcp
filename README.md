@@ -63,12 +63,14 @@ half of the job that starts *after* a graph runs.
 Their local server treats the ComfyUI install as the thing to manage: launch it,
 stop it, roll it to another version, sign in, spend credits on hosted partner
 models, tail its logs, keep the packs updated. That is a genuinely bigger surface
-than this repo has, and if what you need is *drive and maintain my install*, it
-is the better tool — production code, real team, security policy, a release
-cadence.
+than this repo has, and it is the surface a platform vendor is best placed to
+own — it moves whenever ComfyUI, comfy-cli or the partner APIs move. If what you
+need is *drive and maintain my install*, use theirs.
 
-This one treats the **output** as the thing to manage. Nothing here launches a
-process or spends a credit. Instead: return the pixels to the model, diff two
+This one treats the **output** as the thing to manage — because that is the part
+we were on the hook for. It came out of Alienrobot's own production work, where a
+graph that runs is the start of the job, not the end of it. Nothing here launches
+a process or spends a credit. Instead: return the pixels to the model, diff two
 passes into an image where drift can't hide, score the thing the brief actually
 demands, and hold the best-so-far **on disk** so a compacted context can't lose
 it. That's the part no one else has — not because it's hard to call `/view`, but
@@ -93,13 +95,14 @@ discipline, not an endpoint.
 | **Job control** | `submit_workflow`, `job_status`, `cancel_job`, `get_queue`, `interrupt` | one `job` tool: status / wait / watch / cancel / queue |
 | **MCP surface** | 43 tools + 2 prompts + 3 resources | 39 tools |
 | **Size / licence** | ~3,700 lines, MIT | ~16,000 lines, AGPL-3.0-or-later or commercial |
-| **Maintenance** | hobby code, one author | production, ComfyUI team |
+| **Built by** | [Alienrobot](https://alienrobot.com) — built for, and used in, our own VFX/generative work | the ComfyUI team, alongside the platform itself |
+| **Scope of the commitment** | the loop: discovery, conversion, and judging the output | the whole install: lifecycle, accounts, partner APIs, packs |
 
 ### Which to use
 
 - **No GPU** → **Cloud MCP**. Nothing local competes with hardware you don't have.
 - **"Install it, run it, keep it working"** → **Comfy-Org/comfy-mcp**. Lifecycle,
-  partner models, background downloads, a maintained release train.
+  partner models, background downloads, version pinning.
 - **"The first result runs, and a trained eye rejects it"** → **this one.** Six
   fingers, a drifted background, a hard matte edge, a visible tile seam, a clip
   that boils. That's a loop, and this is a server built entirely around it.
